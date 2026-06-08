@@ -561,7 +561,7 @@ const SB={
     }catch(e){console.error('SB.set error:',e);return false;}
   }
 };
-const SB_ENABLED=true;
+const SB_ENABLED=SUPABASE_URL!=='YOUR_SUPABASE_URL';
 
 const LS_KEY='fukumimi_shift_v4';
 const LS_REQ='fukumimi_requests_v1'; // スタッフ申請データ（モード共通）
@@ -613,7 +613,6 @@ const REQ_TYPES={
   paid_pm:  {label:'有給（午後半日）',short:'有給午後',color:'#5B21B6',bg:'#F5F3FF',border:'#7C3AED',days:0.5,icon:'🌸'},
   off:      {label:'希望休',         short:'希望休',   color:'#C2410C',bg:'#FFF7ED',border:'#F97316',days:0,  icon:'📅'},
   work_wish:{label:'出勤希望',        short:'出勤希望', color:'#065F46',bg:'#ECFDF5',border:'#10B981',days:0,  icon:'🙋'},
-  can_work: {label:'緊急ヘルプ',       short:'ヘルプ',   color:'#92400E',bg:'#FEF3C7',border:'#F59E0B',days:0,  icon:'🙋'},
 };
 
 function calcUsedDaysFromRequests(requests,staffId){
@@ -758,54 +757,12 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
                 );
               })}
             </div>
-            {/* 不足コマへの「入れます」セクション */}
-            {shortageSlots&&shortageSlots.length>0&&(
-              <div style={{borderTop:'1px solid #E2E8F0',paddingTop:12,marginTop:4,marginBottom:8}}>
-                <div style={{fontSize:12,color:'#92400E',fontWeight:700,marginBottom:8}}>⚠️ 人員不足のコマがあります</div>
-                <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:10}}>
-                  {shortageSlots.map(slot=>{
-                    const sc=getTimeColor(slot);
-                    return(
-                      <div key={slot.id} style={{padding:'8px 12px',borderRadius:8,background:sc.bg,border:'1.5px solid '+sc.border,
-                        display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                        <span style={{fontSize:13,fontWeight:700,color:sc.text}}>{slot.label}</span>
-                        <span style={{fontSize:11,color:'#6B7280'}}>{slot.time}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <button onClick={()=>onApplyCanWork&&onApplyCanWork(shortageSlots.map(sl=>sl.id))}
-                  style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:'#F59E0B',color:'#fff',
-                    cursor:'pointer',fontSize:14,fontWeight:700,marginBottom:8}}>
-                  🙋 このコマに入れます！
-                </button>
-              </div>
-            )}
             <button onClick={onCancel} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>キャンセル</button>
           </>
         )}
       </div>
     </div>
   );
-}
-
-// ── スタッフ時刻計算ヘルパー ──
-function calcStaffTimes(s, sSlots){
-  try{
-    const nt=t=>(t||'').replace(/[-－–—〜ー]/g,'-');
-    const parseT=t=>{const m=nt(t).match(/(\d{1,2}):(\d{2})/);return m?parseInt(m[1])*60+parseInt(m[2]):-1;};
-    const splitT=t=>{const n=nt(t);const i=n.indexOf('-');return i>0?[n.slice(0,i),n.slice(i+1)]:null;};
-    let minS=9999,maxE=-1;
-    (sSlots||[]).forEach(sl=>{const p=splitT(sl.time||'');if(p){const s2=parseT(p[0]),e2=parseT(p[1]);if(s2>=0&&s2<minS)minS=s2;if(e2>=0&&e2>maxE)maxE=e2;}});
-    const fmt=m=>m>=0&&m<9999?Math.floor(m/60)+':'+(m%60).toString().padStart(2,'0'):'';
-    const startStr=fmt(minS),endStr=fmt(maxE);
-    const notes=(s&&s.notes)||'';
-    const em=notes.match(/(\d{1,2})(?::(\d{2}))?時?まで(?![\s\S]*(?:以降|から|より))/);
-    const lim=em?parseInt(em[1])*60+(em[2]?parseInt(em[2]):0):null;
-    const fmtLim=lim!=null?Math.floor(lim/60)+':'+(lim%60).toString().padStart(2,'0'):null;
-    const endDisp=maxE>=0&&fmtLim&&maxE>lim?endStr+'(退'+fmtLim+')':endStr;
-    return{startStr,endDisp};
-  }catch(e){return{startStr:'',endDisp:''};}
 }
 
 // ── メニューバー用コンポーネント ──
@@ -960,8 +917,8 @@ function App(){
       Object.entries(dayMap).forEach(([sidStr,req])=>{
         const sid=parseInt(sidStr);
         const ttype=typeToTmp[req.type];
-        if((req.type==='work_wish'||req.type==='can_work')&&req.slots){
-          // 出勤希望・緊急ヘルプ → asgnにそのスタッフを追加
+        if(req.type==='work_wish'&&req.slots){
+          // 出勤希望 → asgnにそのスタッフを追加
           req.slots.forEach(slotId=>{
             if(!newAsgn[dk])newAsgn[dk]={...(newAsgn[dk]||{})};
             const cur=newAsgn[dk][slotId]||[];
@@ -2306,18 +2263,6 @@ ${bodyHtml}
     if(enteredPin===s?.pin){
       if(pinTarget.mode==='work_wish'){
         doApplyWorkWish(pinTarget.dk,pinTarget.slotIds);
-      }else if(pinTarget.mode==='can_work'){
-        // 緊急ヘルプ申請：can_workタイプで保存
-        setRequests(prev=>{
-          const day={...(prev[pinTarget.dk]||{})};
-          day[String(staffMyId)]={type:'can_work',slots:pinTarget.slotIds,
-            slotLabels:pinTarget.slotIds.map(id=>{
-              const dow=new Date(pinTarget.dk).getDay();
-              const slot=(slots[dow]||[]).find(s=>s.id===id);
-              return slot?slot.label:id;
-            }),appliedAt:new Date().toISOString()};
-          return{...prev,[pinTarget.dk]:day};
-        });
       }else{
         doApplyRequest(pinTarget.dk,pinTarget.type);
       }
@@ -2477,33 +2422,23 @@ ${bodyHtml}
     return(
       <div style={{background:'#F1F5F9',minHeight:'100vh'}}>
         {/* PINダイアログ */}
-        {(pinTarget?.mode==='request'||pinTarget?.mode==='work_wish'||pinTarget?.mode==='can_work')&&(
+        {(pinTarget?.mode==='request'||pinTarget?.mode==='work_wish')&&(
           <PinDialog staffName={staffMe?.name||''} onSuccess={handleRequestPin} onCancel={()=>setPinTarget(null)}/>
         )}
         {pinTarget?.mode==='cancel'&&(
           <PinDialog staffName={staffMe?.name||''} onSuccess={handleCancelPin} onCancel={()=>setPinTarget(null)}/>
         )}
         {/* 申請ボトムシート */}
-        {staffReqDk&&(()=>{
-          const _dk=staffReqDk;
-          const _dow=new Date(_dk).getDay();
-          const _dayAsgn=asgn[_dk]||{};
-          const _daySlots=slots[_dow]||[];
-          const _shortage=_daySlots.filter(slot=>{
-            const ids=(_dayAsgn[slot.id]||[]).filter(sid=>!['off','paid'].includes(tmps[_dk]?.[String(sid)]?.type));
-            return ids.length<(weeklyReq[slot.id]||0);
-          });
-          return(
-            <RequestSheet dk={_dk} mySlots={selMySlots}
-              allDaySlots={_daySlots}
-              selReq={selReq} remainDays={staffRemain}
-              workType={staffMe?.workType||'normal'}
-              onApply={type=>{setPinTarget({mode:'request',dk:_dk,type});setStaffReqDk(null);}}
-              onApplyWorkWish={slotIds=>{setPinTarget({mode:'work_wish',dk:_dk,slotIds});setStaffReqDk(null);}}
-              onCancel={()=>setStaffReqDk(null)}
-              onCancelReq={()=>{setPinTarget({mode:'cancel',dk:_dk});setStaffReqDk(null);}}/>
-          );
-        })()}
+        {staffReqDk&&(
+          <RequestSheet dk={staffReqDk} mySlots={selMySlots}
+            allDaySlots={(slots[new Date(staffReqDk).getDay()]||[])}
+            selReq={selReq} remainDays={staffRemain}
+            workType={staffMe?.workType||'normal'}
+            onApply={type=>{setPinTarget({mode:'request',dk:staffReqDk,type});setStaffReqDk(null);}}
+            onApplyWorkWish={slotIds=>{setPinTarget({mode:'work_wish',dk:staffReqDk,slotIds});setStaffReqDk(null);}}
+            onCancel={()=>setStaffReqDk(null)}
+            onCancelReq={()=>{setPinTarget({mode:'cancel',dk:staffReqDk});setStaffReqDk(null);}}/>
+        )}
         {/* ヘッダー＋タブ統合 */}
         <div style={{background:'#fff',borderBottom:'1px solid #E2E8F0',display:'flex',alignItems:'center',paddingLeft:14}}>
           {/* 名前 */}
@@ -2586,20 +2521,21 @@ ${bodyHtml}
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
-                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
+                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
-                               :sSlots.length>0?(
-                                 <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
-                                   {sSlots.map(slot=>{
-                                     const sc=getTimeColor(slot);
-                                     return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
-                                   })}
-                                 </div>
-                               ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
+                              :sSlots.length>0?(
+                                <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
+                                  {sSlots.map(slot=>{
+                                    const sc=getTimeColor(slot);
+                                    return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
+                                  })}
+                                </div>
+                              ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
                             </td>
+                          );
                         })}
                       </tr>
                     );
