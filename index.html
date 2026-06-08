@@ -2589,8 +2589,8 @@ ${bodyHtml}
                              return ids.length<needed;
                            });
                            const emptySlotsSt=shortageSlotsSt.filter(slot=>{
-                             const ids=(dayAsgn[slot.id]||[]).filter(sid=>!['off','paid'].includes(tmps[dk]?.[String(sid)]?.type));
-                             return ids.length===0;
+                             const ids2=(dayAsgn[slot.id]||[]).filter(sid=>!['off','paid'].includes(tmps[dk]?.[String(sid)]?.type));
+                             return ids2.length===0;
                            });
                            const canWorkReq=isMe&&requests[dk]?.[String(staffMyId)]?.type==='can_work'?requests[dk][String(staffMyId)]:null;
                           const req=isMe?requests[dk]?.[staffMyId]:null;
