@@ -57,6 +57,31 @@ const SLOT_COLORS = {
   pm:    {border:'#6D28D9',bgLight:'rgba(237,233,254,.25)',text:'#4C1D95',bgDetail:'#EDE9FE'}, // 夜=紫
 };
 // コマ色はlabel（名前）で自動判定。colorIdは無視。
+function getStaffTimeStr(sSlots, staffNotes) {
+  try {
+    var minS=9999, maxE=-1;
+    for (var i=0; i<sSlots.length; i++) {
+      var t = (sSlots[i].time||'').replace(/[－–—〜ー]/g,'-');
+      var idx = t.indexOf('-');
+      if (idx < 1) continue;
+      var sp = t.slice(0,idx), ep = t.slice(idx+1);
+      var sm = sp.match(/(\d{1,2}):(\d{2})/), em = ep.match(/(\d{1,2}):(\d{2})/);
+      if (sm) { var sv=parseInt(sm[1])*60+parseInt(sm[2]); if(sv<minS) minS=sv; }
+      if (em) { var ev=parseInt(em[1])*60+parseInt(em[2]); if(ev>maxE) maxE=ev; }
+    }
+    var fmt = function(m) { return m>=0&&m<9999 ? Math.floor(m/60)+':'+(m%60<10?'0':'')+(m%60) : ''; };
+    var startStr = fmt(minS), endStr = fmt(maxE);
+    var notes = staffNotes||'';
+    var lm = notes.match(/(\d{1,2})(?::(\d{2}))?時?まで/);
+    if (lm && notes.indexOf('以降') === -1 && notes.indexOf('から') === -1) {
+      var lim = parseInt(lm[1])*60 + (lm[2]?parseInt(lm[2]):0);
+      var limStr = Math.floor(lim/60)+':'+(lim%60<10?'0':'')+(lim%60);
+      if (maxE > lim) endStr = endStr+'(退'+limStr+')';
+    }
+    return { startStr: startStr, endStr: endStr };
+  } catch(e) { return { startStr:'', endStr:'' }; }
+}
+
 function getSlotColor(slot){
   const label=slot?.label||'';
   if(label.includes('夜'))  return SLOT_COLORS.pm;
@@ -2528,10 +2553,12 @@ ${bodyHtml}
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
                               :sSlots.length>0?(
                                 <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
+                                  {isMe&&(()=>{const t=getStaffTimeStr(sSlots,s.notes);return t.startStr?<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{t.startStr}</div>:null;})()}
                                   {sSlots.map(slot=>{
                                     const sc=getTimeColor(slot);
                                     return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
                                   })}
+                                  {isMe&&(()=>{const t=getStaffTimeStr(sSlots,s.notes);return t.endStr?<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{t.endStr}</div>:null;})()}
                                 </div>
                               ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
                             </td>
