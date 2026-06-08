@@ -2615,15 +2615,13 @@ ${bodyHtml}
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
                                :sSlots.length>0?(
                                  <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
-                                   {calcStaffTimes(s,sSlots).startStr&&<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{calcStaffTimes(s,sSlots).startStr}</div>}
                                    {sSlots.map(slot=>{
                                      const sc=getTimeColor(slot);
                                      return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
                                    })}
-                                   {calcStaffTimes(s,sSlots).endDisp&&<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{calcStaffTimes(s,sSlots).endDisp}</div>}
                                  </div>
+                               ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
                             </td>
-                          );
                         })}
                       </tr>
                     );
