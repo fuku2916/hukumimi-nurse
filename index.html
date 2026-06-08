@@ -57,29 +57,6 @@ const SLOT_COLORS = {
   pm:    {border:'#6D28D9',bgLight:'rgba(237,233,254,.25)',text:'#4C1D95',bgDetail:'#EDE9FE'}, // 夜=紫
 };
 // コマ色はlabel（名前）で自動判定。colorIdは無視。
-function getShortageInfo(dk, slots, asgn, tmps, weeklyReq) {
-  try {
-    var dow = new Date(dk).getDay();
-    var daySlots = slots[dow] || [];
-    var dayAsgn = asgn[dk] || {};
-    var shortage = [];
-    var empty = [];
-    for (var i=0; i<daySlots.length; i++) {
-      var slot = daySlots[i];
-      var ids = (dayAsgn[slot.id]||[]).filter(function(sid){
-        var t = tmps[dk] && tmps[dk][String(sid)];
-        return !t || !['off','paid'].includes(t.type);
-      });
-      var need = (weeklyReq[slot.id]||0);
-      if (ids.length < need) {
-        shortage.push(slot);
-        if (ids.length === 0) empty.push(slot);
-      }
-    }
-    return { shortage: shortage, empty: empty };
-  } catch(e) { return { shortage: [], empty: [] }; }
-}
-
 function getStaffTimeStr(sSlots, staffNotes) {
   try {
     var minS=9999, maxE=-1;
@@ -616,34 +593,6 @@ const LS_REQ='fukumimi_requests_v1'; // スタッフ申請データ（モード�
 const ADMIN_PIN_KEY='fukumimi_admin_pin'; // 管理者PIN（localStorage直接保存）
 function loadAdminPin(){try{return localStorage.getItem(ADMIN_PIN_KEY)||'';}catch(e){return '';}}
 function saveAdminPin(pin){try{if(pin)localStorage.setItem(ADMIN_PIN_KEY,pin);else localStorage.removeItem(ADMIN_PIN_KEY);}catch(e){}}
-// Supabaseへの管理者PIN保存・読み込み
-async function loadAdminPinFromCloud(){
-  if(!SB_ENABLED)return null;
-  try{
-    const r=await fetch(SUPABASE_URL+'/rest/v1/shift_data?id=eq.main&select=data',{
-      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
-    });
-    const d=await r.json();
-    return d[0]?.data?.adminPin||null;
-  }catch(e){return null;}
-}
-async function saveAdminPinToCloud(pin){
-  if(!SB_ENABLED)return;
-  try{
-    // shift_dataのadminPinフィールドだけ更新
-    const r=await fetch(SUPABASE_URL+'/rest/v1/shift_data?id=eq.main&select=data',{
-      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
-    });
-    const d=await r.json();
-    const current=d[0]?.data||{};
-    await fetch(SUPABASE_URL+'/rest/v1/shift_data?id=eq.main',{
-      method:'PATCH',
-      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,
-        'Content-Type':'application/json','Prefer':'return=minimal'},
-      body:JSON.stringify({data:{...current,adminPin:pin},updated_at:new Date().toISOString()})
-    });
-  }catch(e){}
-}
 function loadLS(){try{const r=localStorage.getItem(LS_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
 function saveLS(d){try{localStorage.setItem(LS_KEY,JSON.stringify(d));}catch(e){}}
 function loadRequests(){try{const r=localStorage.getItem(LS_REQ);return r?JSON.parse(r):{};}catch(e){return {};}}
@@ -689,7 +638,6 @@ const REQ_TYPES={
   paid_pm:  {label:'有給（午後半日）',short:'有給午後',color:'#5B21B6',bg:'#F5F3FF',border:'#7C3AED',days:0.5,icon:'🌸'},
   off:      {label:'希望休',         short:'希望休',   color:'#C2410C',bg:'#FFF7ED',border:'#F97316',days:0,  icon:'📅'},
   work_wish:{label:'出勤希望',        short:'出勤希望', color:'#065F46',bg:'#ECFDF5',border:'#10B981',days:0,  icon:'🙋'},
-  can_work: {label:'緊急ヘルプ',       short:'ヘルプ',   color:'#92400E',bg:'#FEF3C7',border:'#F59E0B',days:0,  icon:'🙋'},        short:'出勤希望', color:'#065F46',bg:'#ECFDF5',border:'#10B981',days:0,  icon:'🙋'},
 };
 
 function calcUsedDaysFromRequests(requests,staffId){
@@ -953,15 +901,6 @@ function App(){
   },[appMode]);
   // ── 管理者PIN ──
   const [adminPin,setAdminPin]=useState(()=>loadAdminPin());
-  // 起動時にクラウドからPINを読み込む
-  React.useEffect(()=>{
-    loadAdminPinFromCloud().then(pin=>{
-      if(pin){
-        setAdminPin(pin);
-        saveAdminPin(pin); // localStorageにもキャッシュ
-      }
-    });
-  },[]);
   const [adminPinInput,setAdminPinInput]=useState('');
   const [adminPinErr,setAdminPinErr]=useState('');
   const [showAdminPinSetting,setShowAdminPinSetting]=useState(false);
@@ -2436,7 +2375,7 @@ ${bodyHtml}
                       placeholder="新しいPIN（4桁）"
                       style={{width:'100%',padding:'12px',border:'1.5px solid #93C5FD',borderRadius:8,fontSize:22,textAlign:'center',letterSpacing:'0.4em',fontWeight:700,boxSizing:'border-box'}}/>
                     <button
-                      onClick={()=>{if(adminPinInput.length===4){saveAdminPin(adminPinInput);saveAdminPinToCloud(adminPinInput);setAdminPin(adminPinInput);setAdminPinInput('');setAppMode('admin');}}}
+                      onClick={()=>{if(adminPinInput.length===4){saveAdminPin(adminPinInput);setAdminPin(adminPinInput);setAdminPinInput('');setAppMode('admin');}}}
                       disabled={adminPinInput.length!==4}
                       style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:adminPinInput.length===4?'#185FA5':'#CBD5E1',color:'#fff',cursor:adminPinInput.length===4?'pointer':'not-allowed',fontSize:16,fontWeight:700}}>
                       設定して入室
@@ -2607,9 +2546,8 @@ ${bodyHtml}
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
-                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
+                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
-                              {(()=>{var si=getShortageInfo(dk,slots,asgn,tmps,weeklyReq);if(si.empty.length>0&&!isClosed)return<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>🚨</div>;if(si.shortage.length>0&&!isClosed)return<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>⚠️</div>;return null;})()}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
@@ -2882,7 +2820,7 @@ ${bodyHtml}
                   onChange={e=>{setAdminPinErr('');setAdminPinInput(e.target.value.replace(/[^0-9]/g,'').slice(0,4));}}
                   placeholder="新しい4桁PIN"
                   style={{flex:1,padding:'7px 10px',border:K.bd2,borderRadius:K.rmd,fontSize:18,textAlign:'center',letterSpacing:'0.4em',fontWeight:700}}/>
-                <button onClick={()=>{if(adminPinInput.length===4){saveAdminPin(adminPinInput);saveAdminPinToCloud(adminPinInput);setAdminPin(adminPinInput);setAdminPinInput('');setShowAdminPinSetting(false);alert('管理者PINを変更しました');}}}
+                <button onClick={()=>{if(adminPinInput.length===4){saveAdminPin(adminPinInput);setAdminPin(adminPinInput);setAdminPinInput('');setShowAdminPinSetting(false);alert('管理者PINを変更しました');}}}
                   disabled={adminPinInput.length!==4}
                   style={{padding:'7px 14px',border:'none',borderRadius:K.rmd,background:adminPinInput.length===4?K.textI:'#CBD5E1',color:'#fff',cursor:adminPinInput.length===4?'pointer':'not-allowed',fontSize:13,fontWeight:600,whiteSpace:'nowrap'}}>
                   保存
