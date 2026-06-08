@@ -2526,14 +2526,27 @@ ${bodyHtml}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
-                              :sSlots.length>0?(
-                                <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
-                                  {sSlots.map(slot=>{
-                                    const sc=getTimeColor(slot);
-                                    return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
-                                  })}
-                                </div>
-                              ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
+                               :sSlots.length>0?(
+                                 <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
+                                   {(()=>{
+                                     const normalizeT=t=>(t||'').replace(/[\u3001-\uffff]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0)).replace(/[\u30fc\u2013\u2014\u301c\uff0d]/g,'-');
+                                     const parseT=t=>{const m=normalizeT(t).match(/(\d{1,2}):(\d{2})/);return m?parseInt(m[1])*60+parseInt(m[2]):-1;};
+                                     const splitT=t=>{const nt=normalizeT(t);const i=nt.indexOf('-');return i>0?[nt.slice(0,i),nt.slice(i+1)]:null;};
+                                     let minS=9999,maxE=-1;
+                                     sSlots.forEach(sl=>{const p=splitT(sl.time||'');if(p){const s=parseT(p[0]),e=parseT(p[1]);if(s>=0&&s<minS)minS=s;if(e>=0&&e>maxE)maxE=e;}});
+                                     const fmtT=m=>m>=0&&m<9999?Math.floor(m/60)+':'+(m%60).toString().padStart(2,'0'):'';
+                                     const startStr=fmtT(minS),endStr=fmtT(maxE);
+                                     return(<>
+                                       {startStr&&<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{startStr}</div>}
+                                       {sSlots.map(slot=>{
+                                         const sc=getTimeColor(slot);
+                                         return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
+                                       })}
+                                       {endStr&&<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{endStr}</div>}
+                                     </>);
+                                   })()}
+                                 </div>
+                               ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
                             </td>
                           );
                         })}
