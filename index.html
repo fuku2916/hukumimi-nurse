@@ -2302,35 +2302,34 @@ ${bodyHtml}
             <div style={{padding:'12px 16px',background:'#F8FBFF'}}>
               {hasAdminPin?(
                 <>
-                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
                     <input type="password" inputMode="numeric" maxLength={4}
                       value={adminPinInput}
                       onChange={e=>{setAdminPinErr('');setAdminPinInput(e.target.value.replace(/[^0-9]/g,'').slice(0,4));}}
-                      onKeyDown={e=>{if(e.key==='Enter'&&adminPinInput.length===4){if(adminPinInput===adminPin){setAppMode('admin');setAdminPinInput('');}else setAdminPinErr('PINが違います');} }}
-                      placeholder="管理者PIN"
-                      style={{flex:1,padding:'9px 12px',border:'1.5px solid '+(adminPinErr?'#EF4444':'#93C5FD'),borderRadius:8,fontSize:18,textAlign:'center',letterSpacing:'0.4em',fontWeight:700}}/>
+                      onKeyDown={e=>{if(e.key==='Enter'&&adminPinInput.length===4){if(adminPinInput===adminPin){setAppMode('admin');setAdminPinInput('');}else setAdminPinErr('PINが違います');}}}
+                      placeholder="管理者PIN（4桁）"
+                      style={{width:'100%',padding:'12px',border:'1.5px solid '+(adminPinErr?'#EF4444':'#93C5FD'),borderRadius:8,fontSize:22,textAlign:'center',letterSpacing:'0.4em',fontWeight:700,boxSizing:'border-box'}}/>
                     <button
                       onClick={()=>{if(adminPinInput===adminPin){setAppMode('admin');setAdminPinInput('');}else setAdminPinErr('PINが違います');}}
                       disabled={adminPinInput.length!==4}
-                      style={{padding:'9px 16px',border:'none',borderRadius:8,background:adminPinInput.length===4?'#185FA5':'#CBD5E1',color:'#fff',cursor:adminPinInput.length===4?'pointer':'not-allowed',fontSize:13,fontWeight:700,whiteSpace:'nowrap'}}>
+                      style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:adminPinInput.length===4?'#185FA5':'#CBD5E1',color:'#fff',cursor:adminPinInput.length===4?'pointer':'not-allowed',fontSize:16,fontWeight:700}}>
                       入室
                     </button>
                   </div>
-                  {adminPinErr&&<div style={{fontSize:11,color:'#991B1B',marginTop:5}}>{adminPinErr}</div>}
                 </>
               ):(
                 <>
                   <div style={{fontSize:12,color:'#C2410C',marginBottom:8}}>⚠ 管理者PINが未設定です</div>
-                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
                     <input type="password" inputMode="numeric" maxLength={4}
                       value={adminPinInput}
                       onChange={e=>{setAdminPinErr('');setAdminPinInput(e.target.value.replace(/[^0-9]/g,'').slice(0,4));}}
-                      placeholder="新しいPINを設定"
-                      style={{flex:1,padding:'9px 12px',border:'1.5px solid #93C5FD',borderRadius:8,fontSize:18,textAlign:'center',letterSpacing:'0.4em',fontWeight:700}}/>
+                      placeholder="新しいPIN（4桁）"
+                      style={{width:'100%',padding:'12px',border:'1.5px solid #93C5FD',borderRadius:8,fontSize:22,textAlign:'center',letterSpacing:'0.4em',fontWeight:700,boxSizing:'border-box'}}/>
                     <button
                       onClick={()=>{if(adminPinInput.length===4){saveAdminPin(adminPinInput);setAdminPin(adminPinInput);setAdminPinInput('');setAppMode('admin');}}}
                       disabled={adminPinInput.length!==4}
-                      style={{padding:'9px 16px',border:'none',borderRadius:8,background:adminPinInput.length===4?'#185FA5':'#CBD5E1',color:'#fff',cursor:adminPinInput.length===4?'pointer':'not-allowed',fontSize:13,fontWeight:700,whiteSpace:'nowrap'}}>
+                      style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:adminPinInput.length===4?'#185FA5':'#CBD5E1',color:'#fff',cursor:adminPinInput.length===4?'pointer':'not-allowed',fontSize:16,fontWeight:700}}>
                       設定して入室
                     </button>
                   </div>
