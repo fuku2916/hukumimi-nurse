@@ -2565,12 +2565,14 @@ ${bodyHtml}
                           const tmpCond=tmps[dk]?.[String(s.id)];
                           const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmpCond?.type);
                           const _si=(!isClosed&&!req&&!isOffTmp)?getShortageInfo(dk,slots,asgn,tmps,weeklyReq):'ok';
-                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':_si==='empty'?'#FFF1F2':_si==='shortage'?'#FFFBEB':isSat?'#FFFBEB':'';
+                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':isSat?'#FFFBEB':'';
+                          const _badge=_si==='empty'?'❌':_si==='shortage'?'⚠️':null;
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
-                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',verticalAlign:'middle',
+                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
+                              {_badge&&<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>{_badge}</div>}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
