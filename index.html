@@ -2602,24 +2602,22 @@ ${bodyHtml}
                                      const splitT=t=>{const nt=normalizeT(t);const i=nt.indexOf('-');return i>0?[nt.slice(0,i),nt.slice(i+1)]:null;};
                                      let minS=9999,maxE=-1;
                                      sSlots.forEach(sl=>{const p=splitT(sl.time||'');if(p){const s=parseT(p[0]),e=parseT(p[1]);if(s>=0&&s<minS)minS=s;if(e>=0&&e>maxE)maxE=e;}});
-                                     const fmtT=m=>m>=0&&m<9999?Math.floor(m/60)+':'+(m%60).toString().padStart(2,'0'):'';
-                                     const startStr=fmtT(minS),endStr=fmtT(maxE);
-                                     return(<>
+                                      const fmtT=m=>m>=0&&m<9999?Math.floor(m/60)+':'+(m%60).toString().padStart(2,'0'):'';
+                                      const startStr=fmtT(minS),endStr=fmtT(maxE);
                                       // 帰宅制限時刻（notesから「XX時まで」を抽出）
                                       const _notes=s.notes||'';
                                       const _em=_notes.match(/(\d{1,2})(?::(\d{2}))?時?まで(?![\s\S]*(?:以降|から|より))/);
                                       const _limitMin=_em?parseInt(_em[1])*60+(_em[2]?parseInt(_em[2]):0):null;
                                       const _fmtLimit=_limitMin!=null?Math.floor(_limitMin/60)+':'+((_limitMin%60).toString().padStart(2,'0')):null;
-                                      const endDisplay=maxE>=0&&_fmtLimit&&maxE>_limitMin
-                                        ?endStr+'(退'+_fmtLimit+')':endStr;
-                                       {startStr&&<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{startStr}</div>}
-                                       {sSlots.map(slot=>{
-                                         const sc=getTimeColor(slot);
-                                         return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
-                                       })}
-                                       {endDisplay&&<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{endDisplay}</div>}
-                                     </>);
-                                   })()}
+                                      const endDisplay=maxE>=0&&_fmtLimit&&maxE>_limitMin?endStr+'(退'+_fmtLimit+')':endStr;
+                                      return(<>
+                                        {startStr&&<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{startStr}</div>}
+                                        {sSlots.map(slot=>{
+                                          const sc=getTimeColor(slot);
+                                          return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
+                                        })}
+                                        {endDisplay&&<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{endDisplay}</div>}
+                                      </>);
                                  </div>
                                ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
                             </td>
