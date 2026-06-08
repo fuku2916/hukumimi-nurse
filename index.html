@@ -5,6 +5,27 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>シフト管理 v6</title>
 <style>
+/* レスポンシブ：スマホ（<768px）は小さめフォント */
+:root {
+  --fs-cell: 18px;
+  --fs-date: 18px;
+  --fs-badge: 18px;
+  --fs-slot: 18px;
+  --fs-dow: 16px;
+  --fs-nav: 20px;
+  --fs-menu: 20px;
+}
+@media (max-width: 768px) {
+  :root {
+    --fs-cell: 10px;
+    --fs-date: 12px;
+    --fs-badge: 10px;
+    --fs-slot: 10px;
+    --fs-dow: 10px;
+    --fs-nav: 15px;
+    --fs-menu: 14px;
+  }
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;font-size:14px;background:#F1F5F9;color:#1E293B;min-height:100vh}
 input,textarea,button,select{font-family:inherit;font-size:inherit;outline:none}
@@ -2577,7 +2598,7 @@ ${bodyHtml}
           <button onClick={()=>{setAppMode('select');setAdminPinInput('');setAdminPinErr('');setOpenMenu(null);}}
             style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',border:'none',background:'none',cursor:'pointer',marginRight:8}}>
             <span style={{fontSize:22}}>🏥</span>
-            <span style={{fontWeight:700,fontSize:20,color:K.text,whiteSpace:'nowrap'}}>福耳会</span>
+            <span style={{fontWeight:700,fontSize:'var(--fs-menu)',color:K.text,whiteSpace:'nowrap'}}>福耳会</span>
           </button>
           <div style={{width:1,height:20,background:'#E2E8F0',marginRight:8}}/>
 
@@ -2595,7 +2616,7 @@ ${bodyHtml}
               <button
                 onClick={e=>{e.stopPropagation();setOpenMenu(openMenu===menu.id?null:menu.id);}}
                 style={{padding:'4px 12px',border:'none',background:openMenu===menu.id?K.bgI:'none',
-                  color:openMenu===menu.id?K.textI:K.text,cursor:'pointer',fontSize:20,fontWeight:openMenu===menu.id?600:400,
+                  color:openMenu===menu.id?K.textI:K.text,cursor:'pointer',fontSize:'var(--fs-menu)',fontWeight:openMenu===menu.id?600:400,
                   borderRadius:6,height:32}}>
                 {menu.label}
               </button>
@@ -2676,9 +2697,9 @@ ${bodyHtml}
       {tab==='shift'&&(
         <div style={{padding:16}}>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
-            <button onClick={()=>nav(-1)} style={{border:K.bd2,borderRadius:K.rmd,padding:'6px 14px',background:K.bg,cursor:'pointer',fontSize:18}}>◀</button>
-            <span style={{fontWeight:700,fontSize:20}}>{y}年 {m}月</span>
-            <button onClick={()=>nav(1)}  style={{border:K.bd2,borderRadius:K.rmd,padding:'6px 14px',background:K.bg,cursor:'pointer',fontSize:18}}>▶</button>
+            <button onClick={()=>nav(-1)} style={{border:K.bd2,borderRadius:K.rmd,padding:'4px 10px',background:K.bg,cursor:'pointer',fontSize:'var(--fs-nav)'}}>◀</button>
+            <span style={{fontWeight:700,fontSize:'var(--fs-nav)'}}>{y}年 {m}月</span>
+            <button onClick={()=>nav(1)}  style={{border:K.bd2,borderRadius:K.rmd,padding:'4px 10px',background:K.bg,cursor:'pointer',fontSize:'var(--fs-nav)'}}>▶</button>
             <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               {aErr&&aErr!=='AUTH_ERROR'&&(
                 <div style={{fontSize:11,color:K.textD,maxWidth:300,lineHeight:1.4,cursor:'pointer'}} title={aErr} onClick={()=>alert(aErr)}>エラー（詳細はクリック）</div>
@@ -2771,7 +2792,7 @@ ${bodyHtml}
               <table style={{borderCollapse:'collapse',width:'100%',minWidth:390,tableLayout:'fixed'}}>
                 <thead>
                   <tr>{['月','火','水','木','金','土'].map((d,i)=>(
-                    <th key={d} style={{padding:'8px 4px',border:K.bd,fontSize:16,fontWeight:600,textAlign:'center',background:i===5?'#FFFBEB':K.bgS,color:i===5?'#92400E':K.textS,width:'16.666%'}}>{d}</th>
+                    <th key={d} style={{padding:'4px 2px',border:K.bd,fontSize:'var(--fs-dow)',fontWeight:600,textAlign:'center',background:i===5?'#FFFBEB':K.bgS,color:i===5?'#92400E':K.textS,width:'16.666%'}}>{d}</th>
                   ))}</tr>
                 </thead>
                 <tbody>
@@ -2804,7 +2825,7 @@ ${bodyHtml}
                               style={{border:isSel?'2px solid '+K.textI:K.bd,background:cellBg,padding:5,cursor:isClosed?'default':'pointer',verticalAlign:'top'}}>
                               {/* 日付行 + 休診トグル */}
                               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
-                                <div style={{fontSize:18,fontWeight:700,color:isClosed&&holidayName?'#991B1B':isSat?'#92400E':K.text}}>
+                                <div style={{fontSize:'var(--fs-date)',fontWeight:700,color:isClosed&&holidayName?'#991B1B':isSat?'#92400E':K.text}}>
                                   {d.getDate()}
                                   {holidayName&&<span style={{fontSize:14,fontWeight:400,color:'#991B1B',marginLeft:3}}>{holidayName}</span>}
                                 </div>
@@ -2817,7 +2838,7 @@ ${bodyHtml}
                               </div>
                               {/* 休診日は「休診」表示のみ */}
                               {isClosed?(
-                                <div style={{textAlign:'center',padding:'8px 0',color:'#991B1B',fontSize:18,fontWeight:600}}>
+                                <div style={{textAlign:'center',padding:'4px 0',color:'#991B1B',fontSize:'var(--fs-cell)',fontWeight:600}}>
                                   {holidayName||'休診'}
                                 </div>
                               ):(
@@ -2834,8 +2855,8 @@ ${bodyHtml}
                                     return(
                                       <div key={slot.id} style={{marginBottom:2,padding:'1px 3px',borderRadius:3,borderLeft:'2px solid '+sc.border,background:sc.bgLight}}>
                                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                          <div style={{fontSize:18,color:K.textS}}>{slot.label}</div>
-                                          <div style={{fontSize:18,fontWeight:600,color:coverColor}}>{activeIds.length}/{req}</div>
+                                          <div style={{fontSize:'var(--fs-slot)',color:K.textS}}>{slot.label}</div>
+                                          <div style={{fontSize:'var(--fs-cell)',fontWeight:600,color:coverColor}}>{activeIds.length}/{req}</div>
                                         </div>
                                         <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
                                           {activeIds.length===0&&allIds.filter(sid=>!slotOffIds.includes(sid)).length===0&&<span style={{fontSize:8,color:K.textS,opacity:.4}}>--</span>}
@@ -2860,9 +2881,9 @@ ${bodyHtml}
                                       </div>
                                     );
                                   })}
-                                  {offN.length>0&&<div style={{fontSize:18,color:'#86198F',marginTop:1}}>🌸 {offN.join(' ')}</div>}
-                                  {overStaff.length>0&&<div style={{fontSize:18,color:'#D85A30',marginTop:1}}>⚠8h超: {overStaff.map(s=>s.name+'('+dayHours(dk,s.id,asgn,manualExclusions,slots).toFixed(1)+'h)').join(' ')}</div>}
-                                  {shortageSlots.length>0&&<div style={{fontSize:18,color:'#C62828',fontWeight:700,marginTop:3,paddingTop:2,borderTop:'1px dashed #EF9A9A',lineHeight:1.4}}>⚠ 人員不足</div>}
+                                  {offN.length>0&&<div style={{fontSize:'var(--fs-cell)',color:'#86198F',marginTop:1}}>🌸 {offN.join(' ')}</div>}
+                                  {overStaff.length>0&&<div style={{fontSize:'var(--fs-cell)',color:'#D85A30',marginTop:1}}>⚠8h超: {overStaff.map(s=>s.name+'('+dayHours(dk,s.id,asgn,manualExclusions,slots).toFixed(1)+'h)').join(' ')}</div>}
+                                  {shortageSlots.length>0&&<div style={{fontSize:'var(--fs-cell)',color:'#C62828',fontWeight:700,marginTop:3,paddingTop:2,borderTop:'1px dashed #EF9A9A',lineHeight:1.4}}>⚠ 人員不足</div>}
                                 </>
                               )}
                             </td>
