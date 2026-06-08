@@ -57,6 +57,29 @@ const SLOT_COLORS = {
   pm:    {border:'#6D28D9',bgLight:'rgba(237,233,254,.25)',text:'#4C1D95',bgDetail:'#EDE9FE'}, // 夜=紫
 };
 // コマ色はlabel（名前）で自動判定。colorIdは無視。
+function getShortageInfo(dk, slots, asgn, tmps, weeklyReq) {
+  try {
+    var dow = new Date(dk).getDay();
+    var daySlots = slots[dow] || [];
+    var dayAsgn = asgn[dk] || {};
+    var shortage = [];
+    var empty = [];
+    for (var i=0; i<daySlots.length; i++) {
+      var slot = daySlots[i];
+      var ids = (dayAsgn[slot.id]||[]).filter(function(sid){
+        var t = tmps[dk] && tmps[dk][String(sid)];
+        return !t || !['off','paid'].includes(t.type);
+      });
+      var need = (weeklyReq[slot.id]||0);
+      if (ids.length < need) {
+        shortage.push(slot);
+        if (ids.length === 0) empty.push(slot);
+      }
+    }
+    return { shortage: shortage, empty: empty };
+  } catch(e) { return { shortage: [], empty: [] }; }
+}
+
 function getStaffTimeStr(sSlots, staffNotes) {
   try {
     var minS=9999, maxE=-1;
@@ -666,6 +689,7 @@ const REQ_TYPES={
   paid_pm:  {label:'有給（午後半日）',short:'有給午後',color:'#5B21B6',bg:'#F5F3FF',border:'#7C3AED',days:0.5,icon:'🌸'},
   off:      {label:'希望休',         short:'希望休',   color:'#C2410C',bg:'#FFF7ED',border:'#F97316',days:0,  icon:'📅'},
   work_wish:{label:'出勤希望',        short:'出勤希望', color:'#065F46',bg:'#ECFDF5',border:'#10B981',days:0,  icon:'🙋'},
+  can_work: {label:'緊急ヘルプ',       short:'ヘルプ',   color:'#92400E',bg:'#FEF3C7',border:'#F59E0B',days:0,  icon:'🙋'},        short:'出勤希望', color:'#065F46',bg:'#ECFDF5',border:'#10B981',days:0,  icon:'🙋'},
 };
 
 function calcUsedDaysFromRequests(requests,staffId){
@@ -2583,8 +2607,9 @@ ${bodyHtml}
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
-                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',verticalAlign:'middle',
+                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
+                              {(()=>{var si=getShortageInfo(dk,slots,asgn,tmps,weeklyReq);if(si.empty.length>0&&!isClosed)return<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>🚨</div>;if(si.shortage.length>0&&!isClosed)return<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>⚠️</div>;return null;})()}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
