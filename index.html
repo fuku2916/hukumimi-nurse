@@ -774,7 +774,7 @@ function RequestSheet({dk,mySlots,allDaySlots,shortageSlots,selReq,remainDays,on
                     );
                   })}
                 </div>
-                <button onClick={()=>onApplyCanWork&&onApplyCanWork(shortageSlots.map(s=>s.id))}
+                <button onClick={()=>onApplyCanWork&&onApplyCanWork(shortageSlots.map(sl=>sl.id))}
                   style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:'#F59E0B',color:'#fff',
                     cursor:'pointer',fontSize:14,fontWeight:700,marginBottom:8}}>
                   🙋 このコマに入れます！
