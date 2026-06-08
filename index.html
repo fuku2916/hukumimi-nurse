@@ -658,7 +658,7 @@ function PinDialog({staffName,onSuccess,onCancel}){
 }
 
 // ── 申請ボトムシート ──
-function RequestSheet({dk,mySlots,allDaySlots,shortageSlots,selReq,remainDays,onApply,onApplyWorkWish,onApplyCanWork,onCancel,onCancelReq,workType}){
+function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyWorkWish,onCancel,onCancelReq,workType}){
   const d=new Date(dk);
   const dateStr=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAY_JP[d.getDay()]+'）';
   const [selSlots,setSelSlots]=React.useState([]);
@@ -2496,12 +2496,10 @@ ${bodyHtml}
           return(
             <RequestSheet dk={_dk} mySlots={selMySlots}
               allDaySlots={_daySlots}
-              shortageSlots={_shortage}
               selReq={selReq} remainDays={staffRemain}
               workType={staffMe?.workType||'normal'}
               onApply={type=>{setPinTarget({mode:'request',dk:_dk,type});setStaffReqDk(null);}}
               onApplyWorkWish={slotIds=>{setPinTarget({mode:'work_wish',dk:_dk,slotIds});setStaffReqDk(null);}}
-              onApplyCanWork={slotIds=>{setPinTarget({mode:'can_work',dk:_dk,slotIds});setStaffReqDk(null);}}
               onCancel={()=>setStaffReqDk(null)}
               onCancelReq={()=>{setPinTarget({mode:'cancel',dk:_dk});setStaffReqDk(null);}}/>
           );
