@@ -69,7 +69,7 @@ function getShortageInfo(dk, slots, asgn, tmps, weeklyReq) {
         var t = tmps && tmps[dk] && tmps[dk][String(sid)];
         return !t || (t.type !== 'off' && t.type !== 'paid');
       });
-      var need = (weeklyReq && weeklyReq[slot.id]) || 0;
+      var need = (weeklyReq && weeklyReq[dow] && weeklyReq[dow][slot.id]) || 0;
       if (need > 0 && ids.length < need) {
         hasShortage = true;
         if (ids.length === 0) hasEmpty = true;
