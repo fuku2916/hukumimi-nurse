@@ -511,7 +511,7 @@ JSONのみで回答（前置き・コードブロック不要）:
 // ================================================================
 // Supabase設定（ここを書き換えてください）
 const SUPABASE_URL='https://hwctwbnzjjdllqsmlvqm.supabase.co';
-const SUPABASE_KEY='YOUR_SUPABASE_ANON_KEY';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3Y3R3Ym56ampkbGxxc21sdnFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NzkzMDQsImV4cCI6MjA5NjQ1NTMwNH0.quP2UmR59c1ULUgZkqaq0kzeD8VlOY3cKH4ZaZJwtf0';
 // ================================================================
 
 // Supabaseクライアント（軽量版）
@@ -538,7 +538,7 @@ const SB={
     }catch(e){console.error('SB.set error:',e);return false;}
   }
 };
-const SB_ENABLED=SUPABASE_URL!=='https://hwctwbnzjjdllqsmlvqm.supabase.co';
+const SB_ENABLED=SUPABASE_URL!=='YOUR_SUPABASE_URL';
 
 const LS_KEY='fukumimi_shift_v4';
 const LS_REQ='fukumimi_requests_v1'; // スタッフ申請データ（モード共通）
