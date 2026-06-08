@@ -25,6 +25,8 @@
     --fs-nav: 15px;
     --fs-menu: 14px;
   }
+  .pc-menu { display: none !important; }
+  .mobile-menu-btn { display: block !important; }
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;font-size:14px;background:#F1F5F9;color:#1E293B;min-height:100vh}
@@ -2593,33 +2595,33 @@ ${bodyHtml}
       {/* ── メニューバー ── */}
       <div style={{background:K.bg,borderBottom:K.bd,userSelect:'none'}}
         onClick={e=>{if(e.target===e.currentTarget)setOpenMenu(null);}}>
-        <div style={{display:'flex',alignItems:'center',padding:'0 16px',height:56}}>
+        <div style={{display:'flex',alignItems:'center',padding:'0 10px',height:50}}>
           {/* ロゴ・ホーム */}
           <button onClick={()=>{setAppMode('select');setAdminPinInput('');setAdminPinErr('');setOpenMenu(null);}}
-            style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',border:'none',background:'none',cursor:'pointer',marginRight:8}}>
-            <span style={{fontSize:22}}>🏥</span>
+            style={{display:'flex',alignItems:'center',gap:4,padding:'4px 8px',border:'none',background:'none',cursor:'pointer',marginRight:6,flexShrink:0}}>
+            <span style={{fontSize:20}}>🏥</span>
             <span style={{fontWeight:700,fontSize:'var(--fs-menu)',color:K.text,whiteSpace:'nowrap'}}>福耳会</span>
           </button>
-          <div style={{width:1,height:20,background:'#E2E8F0',marginRight:8}}/>
 
           {/* スタッフ申請バッジ */}
-          {(()=>{const n=Object.values(requests).filter(d=>Object.keys(d).length>0).length;return n>0?<span onClick={()=>{setTab('paid');setOpenMenu(null);}} style={{fontSize:16,background:'#FDF2F8',color:'#86198F',border:'1px solid #F9A8D4',borderRadius:10,padding:'3px 12px',fontWeight:600,whiteSpace:'nowrap',cursor:'pointer',marginRight:8}}>🌸 申請 {n}件</span>:null;})()}
+          {(()=>{const n=Object.values(requests).filter(d=>Object.keys(d).length>0).length;return n>0?<span onClick={()=>{setTab('paid');setOpenMenu(null);}} style={{fontSize:13,background:'#FDF2F8',color:'#86198F',border:'1px solid #F9A8D4',borderRadius:10,padding:'2px 8px',fontWeight:600,whiteSpace:'nowrap',cursor:'pointer',marginRight:6,flexShrink:0}}>🌸 {n}件</span>:null;})()}
 
-          {/* メニュー項目 */}
-          {[
-            {id:'file',    label:'ファイル'},
-            {id:'settings',label:'設定'},
-            {id:'design',  label:'シフト設計'},
-            {id:'output',  label:'出力'},
-          ].map(menu=>(
-            <div key={menu.id} style={{position:'relative'}}>
-              <button
-                onClick={e=>{e.stopPropagation();setOpenMenu(openMenu===menu.id?null:menu.id);}}
-                style={{padding:'4px 12px',border:'none',background:openMenu===menu.id?K.bgI:'none',
-                  color:openMenu===menu.id?K.textI:K.text,cursor:'pointer',fontSize:'var(--fs-menu)',fontWeight:openMenu===menu.id?600:400,
-                  borderRadius:6,height:32}}>
-                {menu.label}
-              </button>
+          {/* PC：メニュー項目 / スマホ：ハンバーガー */}
+          <div className="pc-menu" style={{display:'flex',alignItems:'center',flex:1}}>
+            {[
+              {id:'file',    label:'ファイル'},
+              {id:'settings',label:'設定'},
+              {id:'design',  label:'シフト設計'},
+              {id:'output',  label:'出力'},
+            ].map(menu=>(
+              <div key={menu.id} style={{position:'relative'}}>
+                <button
+                  onClick={e=>{e.stopPropagation();setOpenMenu(openMenu===menu.id?null:menu.id);}}
+                  style={{padding:'4px 10px',border:'none',background:openMenu===menu.id?K.bgI:'none',
+                    color:openMenu===menu.id?K.textI:K.text,cursor:'pointer',fontSize:'var(--fs-menu)',fontWeight:openMenu===menu.id?600:400,
+                    borderRadius:6,height:32,whiteSpace:'nowrap'}}>
+                  {menu.label}
+                </button>
               {openMenu===menu.id&&(
                 <div onClick={e=>e.stopPropagation()}
                   style={{position:'absolute',top:38,left:0,background:K.bg,border:K.bd,borderRadius:K.rlg,
@@ -2678,8 +2680,46 @@ ${bodyHtml}
             </div>
           ))}
 
+          </div>{/* pc-menu end */}
+
+          {/* スマホ：ハンバーガーボタン */}
+          <button className="mobile-menu-btn"
+            onClick={e=>{e.stopPropagation();setOpenMenu(openMenu==='mobile'?null:'mobile');}}
+            style={{display:'none',padding:'6px 10px',border:'none',background:'none',cursor:'pointer',fontSize:22,marginLeft:4,flexShrink:0}}>
+            {openMenu==='mobile'?'✕':'☰'}
+          </button>
+
+          {/* モバイルメニュードロップダウン */}
+          {openMenu==='mobile'&&(
+            <div onClick={e=>e.stopPropagation()}
+              style={{position:'fixed',top:50,left:0,right:0,background:K.bg,border:K.bd,
+                boxShadow:'0 8px 24px rgba(0,0,0,0.15)',zIndex:999,padding:'8px 0'}}>
+              <MenuLabel text="ファイル"/>
+              <MenuItem icon="💾" label="全データ保存" onClick={()=>{saveData();setOpenMenu(null);}}/>
+              <MenuItem icon="📂" label="全データ読み込み" isFile accept=".json" onChange={e=>{loadData(e);setOpenMenu(null);}}/>
+              <MenuItem icon="⚠️" label="初期化..." danger onClick={()=>{setOpenMenu(null);const choice=window.prompt('1→今月 2→全月 3→完全リセット');if(choice==='1'){if(window.confirm('今月をリセット？')){setAsgn(p=>{const n={...p};dates.forEach(d=>{delete n[tdk(d)];});return n;});setTmps(p=>{const n={...p};dates.forEach(d=>{delete n[tdk(d)];});return n;});}}else if(choice==='2'){if(window.confirm('全月リセット？')){setAsgn({});setTmps({});}}else if(choice==='3'){if(window.confirm('完全リセット？')){localStorage.removeItem(LS_KEY);window.location.reload();}}}}/>
+              <MenuDivider/>
+              <MenuLabel text="設定"/>
+              <MenuItem icon="👤" label="スタッフ" onClick={()=>{setTab('staff');setOpenMenu(null);}} active={tab==='staff'}/>
+              <MenuItem icon="🏥" label="診療枠" onClick={()=>{setTab('ref');setOpenMenu(null);}} active={tab==='ref'}/>
+              <MenuItem icon="📊" label="必要人数" onClick={()=>{setTab('req');setOpenMenu(null);}} active={tab==='req'}/>
+              <MenuItem icon="📅" label="ベースシフト" onClick={()=>{setTab('base');setOpenMenu(null);}} active={tab==='base'}/>
+              <MenuItem icon="🔑" label={apiKey?'APIキー設定済':'APIキー未設定'} onClick={()=>{setShowKeyPanel(p=>!p);setOpenMenu(null);}}/>
+              <MenuItem icon="🔐" label="管理者PIN変更" onClick={()=>{setShowAdminPinSetting(p=>!p);setOpenMenu(null);}}/>
+              <MenuDivider/>
+              <MenuLabel text="シフト設計"/>
+              <MenuItem icon="📅" label="シフト表" onClick={()=>{setTab('shift');setOpenMenu(null);}} active={tab==='shift'}/>
+              <MenuItem icon="🤖" label={aLoad?'生成中...':'自動シフト作成'} onClick={()=>{if(!aLoad){doAuto();setOpenMenu(null);}}}/>
+              <MenuDivider/>
+              <MenuLabel text="出力"/>
+              <MenuItem icon="🖨" label="カレンダーPDF" onClick={()=>{exportPDF();setOpenMenu(null);}}/>
+              <MenuItem icon="👤" label="個人別PDF" onClick={()=>{exportStaffPDF();setOpenMenu(null);}}/>
+              <MenuItem icon="📊" label="Excel(CSV)" onClick={()=>{exportExcel();setOpenMenu(null);}}/>
+            </div>
+          )}
+
           {/* 自動保存インジケーター */}
-          <span style={{marginLeft:'auto',fontSize:14,color:K.textS,whiteSpace:'nowrap'}}>
+          <span style={{marginLeft:'auto',fontSize:14,color:K.textS,whiteSpace:'nowrap',flexShrink:0}}>
           {SB_ENABLED
             ?sbLoading?'⏳ 同期中...':sbStatus==='ok'?'☁️ クラウド同期済':'⚠️ オフライン'
             :'💾 ローカル保存中'}
