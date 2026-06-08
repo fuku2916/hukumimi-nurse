@@ -57,6 +57,28 @@ const SLOT_COLORS = {
   pm:    {border:'#6D28D9',bgLight:'rgba(237,233,254,.25)',text:'#4C1D95',bgDetail:'#EDE9FE'}, // 夜=紫
 };
 // コマ色はlabel（名前）で自動判定。colorIdは無視。
+function getShortageInfo(dk, slots, asgn, tmps, weeklyReq) {
+  try {
+    var dow = new Date(dk).getDay();
+    var daySlots = (slots && slots[dow]) || [];
+    var dayAsgn = (asgn && asgn[dk]) || {};
+    var hasEmpty = false, hasShortage = false;
+    for (var i=0; i<daySlots.length; i++) {
+      var slot = daySlots[i];
+      var ids = (dayAsgn[slot.id]||[]).filter(function(sid){
+        var t = tmps && tmps[dk] && tmps[dk][String(sid)];
+        return !t || (t.type !== 'off' && t.type !== 'paid');
+      });
+      var need = (weeklyReq && weeklyReq[slot.id]) || 0;
+      if (need > 0 && ids.length < need) {
+        hasShortage = true;
+        if (ids.length === 0) hasEmpty = true;
+      }
+    }
+    return hasEmpty ? 'empty' : hasShortage ? 'shortage' : 'ok';
+  } catch(e) { return 'ok'; }
+}
+
 function getStaffTimeStr(sSlots, staffNotes) {
   try {
     var minS=9999, maxE=-1;
@@ -2542,7 +2564,8 @@ ${bodyHtml}
                           const rt=req?REQ_TYPES[req.type]:null;
                           const tmpCond=tmps[dk]?.[String(s.id)];
                           const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmpCond?.type);
-                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':isSat?'#FFFBEB':'';
+                          const _si=(!isClosed&&!req&&!isOffTmp)?getShortageInfo(dk,slots,asgn,tmps,weeklyReq):'ok';
+                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':_si==='empty'?'#FFF1F2':_si==='shortage'?'#FFFBEB':isSat?'#FFFBEB':'';
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
