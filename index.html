@@ -2589,7 +2589,7 @@ ${bodyHtml}
   }
 
   return(
-    <div style={{background:K.bgT,minHeight:'100vh'}}>
+    <div style={{background:K.bgT,minHeight:'100vh',overflowX:'hidden'}}>
       {/* ── メニューバー ── */}
       <div style={{background:K.bg,borderBottom:K.bd,userSelect:'none'}}
         onClick={e=>{if(e.target===e.currentTarget)setOpenMenu(null);}}>
@@ -2689,8 +2689,6 @@ ${bodyHtml}
 
       {/* メニュー外クリックで閉じる */}
       {openMenu&&<div onClick={()=>setOpenMenu(null)} style={{position:'fixed',inset:0,zIndex:998}}/>}
-/div>
-
       {/* ================================================================ */}
       {/* シフト表                                                          */}
       {/* ================================================================ */}
