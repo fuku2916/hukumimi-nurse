@@ -2580,36 +2580,16 @@ ${bodyHtml}
                         {staffDates.map(d=>{
                           const dk=tdk(d),isClosed=staffIsClosedDay(dk),isSat=d.getDay()===6;
                           const sSlots=getStaffSlots(s.id,dk);
-                           // 不足コマ計算（全スタッフ行で表示）
-                           const dayAsgn=asgn[dk]||{};
-                           const daySlots=slots[d.getDay()]||[];
-                           const shortageSlotsSt=daySlots.filter(slot=>{
-                             const ids=(dayAsgn[slot.id]||[]).filter(sid=>!['off','paid'].includes(tmps[dk]?.[String(sid)]?.type));
-                             const needed=weeklyReq[slot.id]||0;
-                             return ids.length<needed;
-                           });
-                           const emptySlotsSt=shortageSlotsSt.filter(slot=>{
-                             const ids2=(dayAsgn[slot.id]||[]).filter(sid=>!['off','paid'].includes(tmps[dk]?.[String(sid)]?.type));
-                             return ids2.length===0;
-                           });
-                           const canWorkReq=isMe&&requests[dk]?.[String(staffMyId)]?.type==='can_work'?requests[dk][String(staffMyId)]:null;
                           const req=isMe?requests[dk]?.[staffMyId]:null;
                           const rt=req?REQ_TYPES[req.type]:null;
                           const tmpCond=tmps[dk]?.[String(s.id)];
                           const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmpCond?.type);
-                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':(!isMe&&emptySlotsSt.length>0&&!isClosed)?'#FFF1F2':(!isMe&&shortageSlotsSt.length>0&&!isClosed)?'#FFFBEB':isSat?'#FFFBEB':'';
+                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':isSat?'#FFFBEB':'';
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
                               style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
-                              {/* 不足コマ警告バッジ（全スタッフ行） */}
-                              {!isMe&&!isClosed&&emptySlotsSt.length>0&&(
-                                <div style={{position:'absolute',top:2,right:2,fontSize:10,lineHeight:1}}>🚨</div>
-                              )}
-                              {!isMe&&!isClosed&&shortageSlotsSt.length>0&&emptySlotsSt.length===0&&(
-                                <div style={{position:'absolute',top:2,right:2,fontSize:10,lineHeight:1}}>⚠️</div>
-                              )}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
