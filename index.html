@@ -2553,12 +2553,12 @@ ${bodyHtml}
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
                               :sSlots.length>0?(
                                 <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
-                                  {isMe&&(()=>{const t=getStaffTimeStr(sSlots,s.notes);return t.startStr?<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{t.startStr}</div>:null;})()}
+                                  {(()=>{const t=getStaffTimeStr(sSlots,s.notes);return t.startStr?<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{t.startStr}</div>:null;})()}
                                   {sSlots.map(slot=>{
                                     const sc=getTimeColor(slot);
                                     return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
                                   })}
-                                  {isMe&&(()=>{const t=getStaffTimeStr(sSlots,s.notes);return t.endStr?<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{t.endStr}</div>:null;})()}
+                                  {(()=>{const t=getStaffTimeStr(sSlots,s.notes);return t.endStr?<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{t.endStr}</div>:null;})()}
                                 </div>
                               ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
                             </td>
