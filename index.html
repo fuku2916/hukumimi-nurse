@@ -789,6 +789,25 @@ function RequestSheet({dk,mySlots,allDaySlots,shortageSlots,selReq,remainDays,on
   );
 }
 
+// ── スタッフ時刻計算ヘルパー ──
+function calcStaffTimes(s, sSlots){
+  try{
+    const nt=t=>(t||'').replace(/[-－–—〜ー]/g,'-');
+    const parseT=t=>{const m=nt(t).match(/(\d{1,2}):(\d{2})/);return m?parseInt(m[1])*60+parseInt(m[2]):-1;};
+    const splitT=t=>{const n=nt(t);const i=n.indexOf('-');return i>0?[n.slice(0,i),n.slice(i+1)]:null;};
+    let minS=9999,maxE=-1;
+    (sSlots||[]).forEach(sl=>{const p=splitT(sl.time||'');if(p){const s2=parseT(p[0]),e2=parseT(p[1]);if(s2>=0&&s2<minS)minS=s2;if(e2>=0&&e2>maxE)maxE=e2;}});
+    const fmt=m=>m>=0&&m<9999?Math.floor(m/60)+':'+(m%60).toString().padStart(2,'0'):'';
+    const startStr=fmt(minS),endStr=fmt(maxE);
+    const notes=(s&&s.notes)||'';
+    const em=notes.match(/(\d{1,2})(?::(\d{2}))?時?まで(?![\s\S]*(?:以降|から|より))/);
+    const lim=em?parseInt(em[1])*60+(em[2]?parseInt(em[2]):0):null;
+    const fmtLim=lim!=null?Math.floor(lim/60)+':'+(lim%60).toString().padStart(2,'0'):null;
+    const endDisp=maxE>=0&&fmtLim&&maxE>lim?endStr+'(退'+fmtLim+')':endStr;
+    return{startStr,endDisp};
+  }catch(e){return{startStr:'',endDisp:''};}
+}
+
 // ── メニューバー用コンポーネント ──
 function MenuItem({icon,label,onClick,isFile,accept,onChange,active,danger}){
   const base={display:'flex',alignItems:'center',gap:10,padding:'10px 18px',fontSize:16,
@@ -2596,29 +2615,13 @@ ${bodyHtml}
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
                                :sSlots.length>0?(
                                  <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
-                                   {(()=>{
-                                     const normalT2=t=>(t||'').replace(/[\u3001-\uffff]/g,c2=>String.fromCharCode(c2.charCodeAt(0)-0xFEE0)).replace(/[\u30fc\u2013\u2014\u301c\uff0d]/g,'-');
-                                     const parseT2=t=>{const m=normalT2(t).match(/(\d{1,2}):(\d{2})/);return m?parseInt(m[1])*60+parseInt(m[2]):-1;};
-                                     const splitT2=t=>{const nt=normalT2(t);const idx2=nt.indexOf('-');return idx2>0?[nt.slice(0,idx2),nt.slice(idx2+1)]:null;};
-                                     let minS2=9999,maxE2=-1;
-                                     sSlots.forEach(sl2=>{const p2=splitT2(sl2.time||'');if(p2){const ss=parseT2(p2[0]),ee=parseT2(p2[1]);if(ss>=0&&ss<minS2)minS2=ss;if(ee>=0&&ee>maxE2)maxE2=ee;}});
-                                     const fmtT2=mm=>mm>=0&&mm<9999?Math.floor(mm/60)+':'+(mm%60).toString().padStart(2,'0'):'';
-                                     const startStr2=fmtT2(minS2),endStr2=fmtT2(maxE2);
-                                     const notesS=s.notes||'';
-                                     const emS=notesS.match(/(\d{1,2})(?::(\d{2}))?時?まで(?![\s\S]*(?:以降|から|より))/);
-                                     const limitMinS=emS?parseInt(emS[1])*60+(emS[2]?parseInt(emS[2]):0):null;
-                                     const fmtLimitS=limitMinS!=null?Math.floor(limitMinS/60)+':'+(limitMinS%60).toString().padStart(2,'0'):null;
-                                     const endDisp=maxE2>=0&&fmtLimitS&&maxE2>limitMinS?endStr2+'(退'+fmtLimitS+')':endStr2;
-                                     return(<>
-                                       {startStr2&&<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{startStr2}</div>}
-                                       {sSlots.map(slot=>{
-                                         const sc=getTimeColor(slot);
-                                         return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
-                                       })}
-                                       {endDisp&&<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{endDisp}</div>}
-                                     </>);
-                                   })()}
-                               ):<span style={{fontSize:11,color:'#CBD5E1'}}>—</span>}
+                                   {calcStaffTimes(s,sSlots).startStr&&<div style={{fontSize:10,color:'#1D6FCC',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{calcStaffTimes(s,sSlots).startStr}</div>}
+                                   {sSlots.map(slot=>{
+                                     const sc=getTimeColor(slot);
+                                     return<div key={slot.id} style={{fontSize:11,padding:'2px 5px',borderRadius:3,background:sc.bg,color:sc.text,fontWeight:700,lineHeight:1.4,whiteSpace:'nowrap',maxWidth:62,overflow:'hidden',textOverflow:'ellipsis',borderLeft:'3px solid '+sc.border}}>{slot.label}</div>;
+                                   })}
+                                   {calcStaffTimes(s,sSlots).endDisp&&<div style={{fontSize:10,color:'#991B1B',fontWeight:700,textAlign:'right',width:'100%',paddingRight:2}}>{calcStaffTimes(s,sSlots).endDisp}</div>}
+                                 </div>
                             </td>
                           );
                         })}
