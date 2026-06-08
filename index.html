@@ -19,7 +19,7 @@
   :root {
     --fs-cell: 10px;
     --fs-date: 12px;
-    --fs-badge: 10px;
+    --fs-badge: 9px;
     --fs-slot: 10px;
     --fs-dow: 10px;
     --fs-nav: 15px;
@@ -2871,7 +2871,7 @@ ${bodyHtml}
                                               <span key={sid}
                                                 onClick={e=>{e.stopPropagation();togExclusion(dk,slot.id,sid);}}
                                                 title={isExcl?'クリックで除外解除':isOffTmp?'希望休中（クリックで復活）':'クリックで除外（希望休に設定）'}
-                                                style={{fontSize:18,background:isOffTmp?'#94A3B8':s.color,color:'#fff',borderRadius:4,padding:'2px 7px',cursor:'pointer',userSelect:'none',
+                                                style={{fontSize:'var(--fs-badge)',background:isOffTmp?'#94A3B8':s.color,color:'#fff',borderRadius:3,padding:'1px 3px',cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',
                                                   opacity:(isExcl||isOffTmp)?0.35:1,textDecoration:(isExcl||isOffTmp)?'line-through':'none'}}>
                                                 {s.name}{isOffTmp?'(休)':''}
                                               </span>
