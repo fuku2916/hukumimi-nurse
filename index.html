@@ -2776,6 +2776,19 @@ ${bodyHtml}
             </div>
           )}
 
+          {/* AI生成中スピナー（fixed） */}
+          {aLoad&&(
+            <div style={{position:'fixed',bottom:24,right:24,zIndex:9999,
+              background:'rgba(255,255,255,0.96)',borderRadius:14,padding:'12px 18px',
+              boxShadow:'0 4px 20px rgba(0,0,0,0.15)',display:'flex',alignItems:'center',gap:10,
+              border:'1.5px solid #185FA5'}}>
+              <div className="spinner"/>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:'#185FA5'}}>シフト自動作成中</div>
+                <div style={{fontSize:11,color:'#64748B'}}>AIが計算しています...</div>
+              </div>
+            </div>
+          )}
           {/* 自動保存インジケーター */}
           <span style={{marginLeft:'auto',fontSize:14,color:K.textS,whiteSpace:'nowrap',flexShrink:0}}>
           {SB_ENABLED
