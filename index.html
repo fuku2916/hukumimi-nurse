@@ -1337,6 +1337,10 @@ td.sat{background:#FFFBEB}
 .no-staff{font-size:7pt;color:#000;font-weight:400}
 @page{size:A4 portrait;margin:8mm}
 @media print{body{transform:scale(${scale});transform-origin:top left;width:calc(210mm / ${scale});padding:0}}
+@media print {
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { background: #fff !important; }
+}
 </style></head><body>
 <h1>医療法人　福耳会　シフト表　${y}年 ${m}月</h1>
 <div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
