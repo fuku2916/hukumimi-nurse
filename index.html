@@ -2523,8 +2523,8 @@ ${bodyHtml}
               <button onClick={()=>{if(staffM===12){setStaffY(v=>v+1);setStaffM(1);}else setStaffM(v=>v+1);setStaffReqDk(null);}} style={{border:'1px solid #CBD5E1',borderRadius:8,padding:'4px 10px',background:'#fff',cursor:'pointer',fontSize:14}}>▶</button>
               <span style={{fontSize:11,color:'#64748B'}}>自分の行をタップ→申請</span>
             </div>
-            <div style={{overflowX:'hidden',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
-              <table style={{borderCollapse:'collapse',fontSize:13,width:'100%',tableLayout:'fixed'}}>
+            <div style={{overflowX:'auto',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
+              <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
                 <thead>
                   <tr style={{background:'#F8FAFC'}}>
                     <th style={{padding:'10px 14px',border:'1px solid #E2E8F0',textAlign:'left',fontSize:13,fontWeight:600,minWidth:80,position:'sticky',left:0,background:'#F8FAFC',zIndex:2}}>スタッフ</th>
@@ -2570,8 +2570,8 @@ ${bodyHtml}
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
-                              style={{padding:'4px 2px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
-                                background:cellBg,cursor:isMe&&!isClosed?'pointer':'default'}}>
+                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
+                                background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
                               {_badge&&<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>{_badge}</div>}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
