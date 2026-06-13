@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v8</title>
+<title>シフト管理 v11</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v8';
+const APP_VERSION = 'v11';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -244,8 +244,9 @@ function parseEmploymentType(notes){
 }
 
 // ── パターン適用後に週間時間上限を超えた割当を週内均等分散で除去（グローバル）──
-function enforceHourLimits(rawAsgn, staff, weeks, slots, pinned){
+function enforceHourLimits(rawAsgn, staff, weeks, slots, pinned, reqMap){
   pinned = pinned || new Set(); // "dk|slotId|staffId" 形式：ベースシフト分は絶対に削らない
+  reqMap = reqMap || {};        // "dk|slotId" → 必要人数。必要数を下回る削除はしない（被覆優先）
   const na={};
   Object.entries(rawAsgn).forEach(([dk,sm])=>{
     na[dk]={};
@@ -304,6 +305,10 @@ function enforceHourLimits(rawAsgn, staff, weeks, slots, pinned){
 
       assigned.forEach(a=>{
         if(!kept.has(a.dk+'|'+a.slotId)){
+          // 必要人数を下回る削除はしない（埋めた枠を時間調整で空けない）
+          const req=reqMap[a.dk+'|'+a.slotId]||0;
+          const slotCount=(na[a.dk][a.slotId]||[]).length;
+          if(slotCount<=req) return;
           na[a.dk][a.slotId]=(na[a.dk][a.slotId]||[]).filter(sid=>sid!==s.id);
         }
       });
@@ -544,8 +549,12 @@ ${closedDesc}
   2. 手術コマ担当スタッフをノートから特定し配置する
   3. 外来コマに残りのスタッフを配置し、必要人数を満たす
   4. 各週で時間制約を満たしているか必ず確認し、不足があればコマを追加する
-  5. 不足コマをgapsに記録し依頼候補を提示
-  6. パターンA（条件優先）・B（コマ均等）・C（夜間集約）で3案出力
+  5. 【不足枠の充足・最重要】必要人数に満たないコマが残ったら、登録スタッフ全員のメモ（勤務条件）を1人ずつ確認し、
+     「その曜日に勤務可能か」「その時間帯（コマの開始〜終了）に勤務可能か」「コマ種別（手術/外来/午前のみ等）の条件に合うか」
+     「隔週・奇数偶数週・月◯回などの回数制限に収まるか」を全て満たす人を探して配置する。
+     条件を満たす人が1人でもいる限り、必ずその人で枠を埋めること。週間時間の上限だけは超えないこと。
+  6. 上記をしても条件を満たす人が誰もいない枠だけを、gapsに「人員不足」として記録する（条件に反する無理な配置は絶対にしない）
+  7. パターンA（条件優先）・B（コマ均等）・C（夜間集約）で3案出力
 ━━ 3パターンの違い━━
   パターンA: 全員の制約（週間時間含む）を最大限守った配置
   パターンB: スタッフ間のコマ数をできるだけ均等に配分
@@ -2278,10 +2287,13 @@ ${bodyHtml}
   function finalizeAsgn(aiAsgn){
     const base=buildBaseAsgn();
     const pinned=pinnedFromBase(base);
+    // 必要人数マップ（dk|slotId→必要数）：時間調整で必要数を下回らせない
+    const reqMap={};
+    (patReqList||[]).forEach(({dk,reqBySlot})=>{Object.entries(reqBySlot).forEach(([sid,r])=>{reqMap[dk+'|'+sid]=r;});});
     let na={};
     mergeAsgnInto(na,base);      // ① ベースシフトを土台に
     mergeAsgnInto(na,aiAsgn||{});// ② AI結果を上乗せ
-    na=enforceHourLimits(na,staff,weeks,slots,pinned); // ③ ベースは保護
+    na=enforceHourLimits(na,staff,weeks,slots,pinned,reqMap); // ③ ベース保護＋必要数は維持
     na=fillFulltimeMinHours(na); // ④
     na=ensureMinSlots(na);       // ④
     na=ensureBaseCoverage(na);   // ⑤ 念のための最終保証
