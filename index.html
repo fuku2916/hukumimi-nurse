@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v6</title>
+<title>シフト管理 v8</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -45,6 +45,9 @@ textarea{resize:vertical}
 <script type="text/babel">
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
+// ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
+const APP_VERSION = 'v8';
+try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
 const SLOT_COLORS = {
@@ -2454,7 +2457,7 @@ ${bodyHtml}
         <div style={{background:'#fff',borderRadius:20,padding:32,width:'100%',maxWidth:380,boxShadow:'0 8px 32px rgba(0,0,0,0.10)',textAlign:'center'}}>
           <div style={{fontSize:36,marginBottom:10}}>🏥</div>
           <div style={{fontWeight:700,fontSize:20,color:'#1E293B',marginBottom:3}}>医療法人 福耳会</div>
-          <div style={{fontSize:13,color:'#64748B',marginBottom:28}}>シフト管理システム</div>
+          <div style={{fontSize:13,color:'#64748B',marginBottom:28}}>シフト管理システム <span style={{fontSize:11,color:'#94A3B8',marginLeft:4}}>{APP_VERSION}</span></div>
 
           {/* 管理者モード PIN入力 */}
           <div style={{marginBottom:12,border:'2px solid #185FA5',borderRadius:14,overflow:'hidden'}}>
