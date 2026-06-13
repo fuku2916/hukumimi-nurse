@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v26</title>
+<title>シフト管理 v27</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v26';
+const APP_VERSION = 'v27';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -97,6 +97,14 @@ function staffLeaveLimitMin(notes){
   if(!m)return null;
   return parseInt(m[1])*60+(m[2]?parseInt(m[2]):0);
 }
+// 「X時以降 / Xから」勤務可能の出勤開始時刻（分）。なければnull
+function staffStartLimitMin(notes){
+  if(!notes)return null;
+  var n=(''+notes).replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}).replace(/：/g,':');
+  var m=n.match(/(\d{1,2})(?::(\d{2})|時(?:(\d{1,2})分)?)?\s*(?:以降|から)/);
+  if(!m)return null;
+  return parseInt(m[1])*60+(m[2]?parseInt(m[2]):(m[3]?parseInt(m[3]):0));
+}
 function slotRangeMin(slot){
   var t=((slot&&slot.time)||'').replace(/[－–—〜ー]/g,'-');
   var idx=t.indexOf('-'); if(idx<1)return null;
@@ -111,6 +119,21 @@ function leaveNoteForSlot(notes,slot){
   // コマの開始より後・終了より前に退勤する場合のみ表示
   if(r.e>lim && (r.s==null || r.s<lim)) return '(帰'+fmtHM(lim)+')';
   return '';
+}
+// そのスタッフがそのコマで実際に在席できる分数（退勤・出勤開始の制限を反映）
+function slotCoveredMinutes(notes,slot){
+  var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return 0;
+  var lv=staffLeaveLimitMin(notes), st=staffStartLimitMin(notes);
+  var start=r.s, end=r.e;
+  if(st!=null && st>start) start=st;  // 出勤開始が遅い
+  if(lv!=null && lv<end) end=lv;       // 退勤が早い
+  return Math.max(0, end-start);
+}
+// そのコマの「半分以上」を在席できるか（一部しか出られない人を弾く）
+function canCoverSlot(notes,slot){
+  var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return true;
+  var dur=r.e-r.s; if(dur<=0)return true;
+  return slotCoveredMinutes(notes,slot) >= dur*0.5;
 }
 
 // 日時スタンプ整形（作成日時表示用）"2026/7/4 14:30"
@@ -2421,10 +2444,30 @@ ${bodyHtml}
     let na={};
     mergeAsgnInto(na,base);      // ① ベースシフトを土台に
     mergeAsgnInto(na,aiAsgn||{});// ② AI結果を上乗せ
+    na=dropPoorCoverage(na);     // ②.5 勤務不可/半分も出られないコマから除去（ベースは後で復活）
     na=enforceHourLimits(na,staff,weeks,slots,pinned,reqMap); // ③ ベース保護＋必要数は維持
     na=fillFulltimeMinHours(na); // ④
     na=ensureMinSlots(na);       // ④
     na=ensureBaseCoverage(na);   // ⑤ 念のための最終保証
+    return na;
+  }
+
+  // ── 勤務できない/ほとんど出られないコマからスタッフを外す ──
+  // 退勤・出勤開始の制限で、そのコマの半分も在席できない人を除去（例：15時退勤の人を13:45-19:45の夜外来から外す）
+  function dropPoorCoverage(rawAsgn){
+    const na={};
+    Object.entries(rawAsgn||{}).forEach(([dk,sm])=>{na[dk]={};Object.entries(sm).forEach(([slotId,ids])=>{na[dk][slotId]=[...(ids||[])];});});
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk)||!na[dk])return;
+      const dow=d.getDay();
+      Object.keys(na[dk]).forEach(slotId=>{
+        const slot=(slots[dow]||[]).find(s=>s.id===slotId); if(!slot)return;
+        na[dk][slotId]=(na[dk][slotId]||[]).filter(sid=>{
+          const notes=(staff.find(s=>s.id===sid)||{}).notes;
+          return canCoverSlot(notes,slot);
+        });
+      });
+    });
     return na;
   }
 
@@ -2459,8 +2502,7 @@ ${bodyHtml}
               if(isOffOrExcl(dk,A.id,sid))return false;
               if((na[dk][B.id]||[]).includes(sid))return false;
               const notes=(staff.find(s=>s.id===sid)||{}).notes;
-              const lim=staffLeaveLimitMin(notes);
-              if(rB&&rB.s!=null&&lim!=null&&lim<=rB.s)return false; // 退勤時刻がBの開始前→不可
+              if(!canCoverSlot(notes,B))return false; // そのコマの半分も在席できない人は移さない
               // 移動を試算：Aから外しBへ入れて、8時間以内・週上限以内か
               const trial={...na,[dk]:{...na[dk],[A.id]:(na[dk][A.id]||[]).filter(x=>x!==sid),[B.id]:[...(na[dk][B.id]||[]),sid]}};
               if(dayHours(dk,sid,trial,manualExclusions,slots,staff)>DAILY_LIMIT)return false;
@@ -2529,6 +2571,7 @@ ${bodyHtml}
         const cands=staff.filter(s=>{
           if((na[dk][slot.id]||[]).includes(s.id))return false;
           if(isOffOrExcl(dk,slot.id,s.id))return false;
+          if(!canCoverSlot(s.notes,slot))return false; // そのコマの半分も在席できない人は延長させない
           const sp=staffRanges(dk,s.id); if(sp.length===0)return false; // その日出勤していない人は呼ばない
           const cs=Math.min.apply(null,sp.map(x=>x.s)), ce=Math.max.apply(null,sp.map(x=>x.e));
           if(!(r.s<=ce && r.e>=cs))return false; // 既存シフトと前後で連続/重複している（延長で入れる）
@@ -2556,8 +2599,8 @@ ${bodyHtml}
   }
   function applyOvertimeRelief(){
     const beforeAsgn=asgn;
-    // ①偏り調整（余剰枠→不足枠へ移動）→ ②超過勤務の調整（トリム＋延長）
-    const fixed=relieveDailyOvertime(rebalanceDayCoverage(asgn));
+    // ①勤務不可/半分も出られないコマから除去 → ②偏り調整 → ③超過勤務の調整（トリム＋延長）
+    const fixed=relieveDailyOvertime(rebalanceDayCoverage(dropPoorCoverage(asgn)));
     // 変更点の差分を作成（コマ単位で 外れた人／入った人）
     const nameOf=id=>(staff.find(s=>s.id===id)||{}).name||('ID'+id);
     const changes=[];
