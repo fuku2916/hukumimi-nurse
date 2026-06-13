@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v20</title>
+<title>シフト管理 v21</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v20';
+const APP_VERSION = 'v21';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1084,6 +1084,9 @@ function App(){
   const [aErr,setAErr]=useState(null);
   const [apid,setApid]=useState(null);
   const [hasManualEdits,setHasManualEdits]=useState(false);
+  // 超過勤務 自動調整：元に戻す用スナップショットと変更点
+  const [preReliefAsgn,setPreReliefAsgn]=useState(null);
+  const [reliefChanges,setReliefChanges]=useState([]); // [{dk,slotId,slotLabel,removed:[{id,name}],added:[{id,name}]}]
   const [apiKey,setApiKey]=useState(()=>localStorage.getItem('shift_api_key')||'');
   const [showKeyPanel,setShowKeyPanel]=useState(false);
   const [showHoursPanel,setShowHoursPanel]=useState(false);
@@ -1807,6 +1810,7 @@ ${bodyHtml}
     if(dir<0){if(m===1){setY(v=>v-1);setM(12);}else setM(v=>v-1);}
     else{if(m===12){setY(v=>v+1);setM(1);}else setM(v=>v+1);}
     setSelDk(null);setARes(null);setApid(null);setAErr(null);
+    setPreReliefAsgn(null);setReliefChanges([]); // 月を変えたら調整の変更点表示はクリア
   }
 
   function tog(dk,s2,sid){
@@ -2433,15 +2437,45 @@ ${bodyHtml}
     return na;
   }
   function applyOvertimeRelief(){
-    const before=JSON.stringify(asgn);
+    const beforeAsgn=asgn;
     const fixed=relieveDailyOvertime(asgn);
+    // 変更点の差分を作成（コマ単位で 外れた人／入った人）
+    const nameOf=id=>(staff.find(s=>s.id===id)||{}).name||('ID'+id);
+    const changes=[];
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk))return;
+      const dow=d.getDay();
+      (slots[dow]||[]).forEach(slot=>{
+        const b=(beforeAsgn[dk]?.[slot.id]||[]);
+        const a=(fixed[dk]?.[slot.id]||[]);
+        const removed=b.filter(id=>!a.includes(id));
+        const added=a.filter(id=>!b.includes(id));
+        if(removed.length||added.length){
+          changes.push({dk,slotId:slot.id,slotLabel:slot.label,m:d.getMonth()+1,day:d.getDate(),dow,
+            removed:removed.map(id=>({id,name:nameOf(id)})), added:added.map(id=>({id,name:nameOf(id)}))});
+        }
+      });
+    });
+    if(changes.length===0){alert('調整対象（8時間超）はありませんでした。');return;}
+    setPreReliefAsgn(beforeAsgn);
+    setReliefChanges(changes);
     setAsgn(fixed);
-    // 調整後の残存超過を数える
     let over=0;
     dates.forEach(d=>{const dk=tdk(d);if(isClosedDay(dk))return;staff.forEach(s=>{if(dayHours(dk,s.id,fixed,manualExclusions,slots,staff)>DAILY_LIMIT)over++;});});
-    const changed=JSON.stringify(fixed)!==before;
-    alert(changed?('超過勤務の自動調整を行いました。'+(over>0?'\nまだ解消できない超過が'+over+'件あります（延長できる人がいない枠）。':'\n8時間超は解消されました。')):'調整対象（8時間超）はありませんでした。');
+    alert('超過勤務の自動調整を行いました（変更 '+changes.length+'件）。\n変更点は表の上に一覧表示され、追加された人には ✦ が付きます。\n「元に戻す」で取り消せます。'+(over>0?'\n\n※まだ解消できない超過が'+over+'件あります（延長できる人がいない枠）。':''));
   }
+  function undoOvertimeRelief(){
+    if(preReliefAsgn==null)return;
+    setAsgn(preReliefAsgn);
+    setPreReliefAsgn(null);
+    setReliefChanges([]);
+  }
+  // 自動調整で「追加された」配置の集合（バッジ強調用）
+  const reliefAddedSet=useMemo(()=>{
+    const set=new Set();
+    (reliefChanges||[]).forEach(c=>c.added.forEach(x=>set.add(c.dk+'|'+c.slotId+'|'+x.id)));
+    return set;
+  },[reliefChanges]);
 
   // ── ベースシフトのコマ被覆を保証（時間調整で消えた金土などを最後に復活）──
   // 労働時間調整(enforceHourLimits)が週後半の枠を削って金・土が空になるのを防ぐため、
@@ -2478,6 +2512,7 @@ ${bodyHtml}
   }
 
   function applyPat(pat){
+    setPreReliefAsgn(null);setReliefChanges([]); // 新しいパターン適用時は前回の調整履歴をクリア
     const hasExcl=Object.values(manualExclusions).some(sm=>Object.values(sm).some(ids=>(ids||[]).length>0));
 
     if(hasExcl){
@@ -3092,6 +3127,10 @@ ${bodyHtml}
             <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               <button onClick={applyOvertimeRelief} title="8時間超の人を末尾コマから外し、空いた枠はその日出勤中の人の延長で補います"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 超過勤務を自動調整</button>
+              {preReliefAsgn!=null&&(
+                <button onClick={undoOvertimeRelief} title="自動調整を取り消して調整前に戻します"
+                  style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #64748B',background:'#F1F5F9',color:'#334155',whiteSpace:'nowrap'}}>↩ 元に戻す</button>
+              )}
               {aErr&&aErr!=='AUTH_ERROR'&&(
                 <div style={{fontSize:11,color:K.textD,maxWidth:300,lineHeight:1.4,cursor:'pointer'}} title={aErr} onClick={()=>alert(aErr)}>エラー（詳細はクリック）</div>
               )}
@@ -3159,6 +3198,28 @@ ${bodyHtml}
           {showHoursPanel&&<HoursPanel staff={staff} weeks={weeks} dates={dates} asgn={asgn} manualExclusions={manualExclusions} slots={slots} onClose={()=>setShowHoursPanel(false)} onAutoFill={autoFillHours}/>}
           {showReportPanel&&<ReportPanel reports={generateReport()} y={y} m={m} onClose={()=>setShowReportPanel(false)} onExportPDF={exportReportPDF}/>}
           {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} finalizeAsgn={finalizeAsgn} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
+
+          {/* 超過勤務 自動調整の変更点 */}
+          {reliefChanges.length>0&&(
+            <div style={{background:'#FFF7ED',border:'1px solid #FDBA74',borderRadius:K.rlg,padding:'10px 14px',marginBottom:12}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:6,flexWrap:'wrap'}}>
+                <div style={{fontWeight:600,fontSize:13,color:'#9A3412'}}>⚖ 自動調整の変更点（{reliefChanges.length}件）<span style={{fontWeight:400,fontSize:11,color:K.textS,marginLeft:6}}>カレンダーの ✦ が追加された人です</span></div>
+                <div style={{display:'flex',gap:6}}>
+                  <button onClick={undoOvertimeRelief} style={{padding:'4px 10px',borderRadius:K.rmd,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid #64748B',background:'#fff',color:'#334155'}}>↩ 元に戻す</button>
+                  <button onClick={()=>setReliefChanges([])} style={{padding:'4px 10px',borderRadius:K.rmd,fontSize:11,cursor:'pointer',border:'1px solid #E2E8F0',background:'#fff',color:K.textS}}>閉じる</button>
+                </div>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:3,maxHeight:140,overflowY:'auto'}}>
+                {reliefChanges.map((c,i)=>(
+                  <div key={i} style={{fontSize:12,color:K.text,lineHeight:1.5}}>
+                    <span style={{fontWeight:600}}>{c.m}/{c.day}({DAY_JP[c.dow]}) {c.slotLabel}</span>：
+                    {c.removed.length>0&&<span style={{color:'#9A3412'}}> −{c.removed.map(x=>x.name).join('・')}（退）</span>}
+                    {c.added.length>0&&<span style={{color:'#166534'}}> ＋{c.added.map(x=>x.name).join('・')}（延長）</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* legend */}
           <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
@@ -3258,14 +3319,16 @@ ${bodyHtml}
                                             const isOff=slotOffIds.includes(sid);
                                             const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmps[dk]?.[String(sid)]?.type);
                                             const leaveNote=(!isOffTmp&&!isExcl)?leaveNoteForSlot(s.notes,slot):'';
+                                            const isReliefAdded=reliefAddedSet.has(dk+'|'+slot.id+'|'+sid);
                                             // isOff（tmps由来）のスタッフはバッジを薄く表示して「クリックで復活」を可能にする
                                             return(
                                               <span key={sid}
                                                 onClick={e=>{e.stopPropagation();togExclusion(dk,slot.id,sid);}}
                                                 title={isExcl?'クリックで除外解除':isOffTmp?'希望休中（クリックで復活）':'クリックで除外（希望休に設定）'}
                                                 style={{fontSize:'var(--fs-badge)',background:isOffTmp?'#94A3B8':s.color,color:'#fff',borderRadius:3,padding:'1px 3px',cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',
-                                                  opacity:(isExcl||isOffTmp)?0.35:1,textDecoration:(isExcl||isOffTmp)?'line-through':'none'}}>
-                                                {s.name}{isOffTmp?'(休)':(leaveNote?<span style={{fontWeight:700,opacity:0.95}}>{leaveNote}</span>:'')}
+                                                  opacity:(isExcl||isOffTmp)?0.35:1,textDecoration:(isExcl||isOffTmp)?'line-through':'none',
+                                                  boxShadow:isReliefAdded?'0 0 0 2px #16A34A':'none'}}>
+                                                {isReliefAdded?'✦':''}{s.name}{isOffTmp?'(休)':(leaveNote?<span style={{fontWeight:700,opacity:0.95}}>{leaveNote}</span>:'')}
                                               </span>
                                             );
                                           })}
