@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v32</title>
+<title>シフト管理 v33</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v32';
+const APP_VERSION = 'v33';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -314,6 +314,36 @@ function parseEmploymentType(notes){
   return null;
 }
 
+// ── 勤務条件を「入力式(cond)」⇔「条件文(notes)」で相互変換 ──
+function minToHM2(m){if(m==null||m==='')return '';return Math.floor(m/60)+':'+String(m%60).padStart(2,'0');}
+function defaultCond(){return {days:{1:true,2:true,3:true,4:true,5:true,6:true},start:'',end:'',weekMinH:'',weekMaxH:'',slot:'both',emp:''};}
+// 入力式の値から、判定プログラムが確実に読める“決まった書式”の条件文を生成
+function condToNotes(c){
+  if(!c)return '';
+  const L=[];
+  if(c.emp==='fulltime')L.push('【常勤】'); else if(c.emp==='parttime')L.push('【パート】');
+  if(c.days){const a=[1,2,3,4,5,6].filter(d=>c.days[d]); if(a.length>0&&a.length<6)L.push(a.map(d=>DAY_JP[d]).join('・')+'勤務可能');}
+  if(c.slot==='surg')L.push('手術のみ'); else if(c.slot==='out')L.push('外来のみ'); else if(c.slot==='both')L.push('外来・手術いずれも可');
+  const mn=c.weekMinH, mx=c.weekMaxH;
+  if(mn&&mx)L.push(mn+'時間以上'+mx+'時間以内'); else if(mx)L.push(mx+'時間以内'); else if(mn)L.push(mn+'時間以上');
+  if(c.start)L.push(c.start+'以降勤務可能');  // 「以降」は「まで」より前に置く（退勤判定の誤作動防止）
+  if(c.end)L.push(c.end+'まで勤務可能');       // 「まで」を最後に
+  return L.join('\n');
+}
+// 既存の自由文を入力式に best-effort 変換（移行用）。元の文はmemoに保持
+function notesToCond(notes){
+  const c=defaultCond();
+  const lv=staffLeaveLimitMin(notes), st=staffStartLimitMin(notes), wh=parseWeeklyHours(notes), emp=parseEmploymentType(notes);
+  if(lv!=null)c.end=minToHM2(lv);
+  if(st!=null)c.start=minToHM2(st);
+  if(wh){ if(wh.min)c.weekMinH=wh.min; if(wh.max&&wh.max<40)c.weekMaxH=wh.max; }
+  if(emp)c.emp=emp;
+  if(/手術のみ|手術室のみ/.test(notes||''))c.slot='surg'; else if(/外来のみ/.test(notes||''))c.slot='out'; else c.slot='both';
+  // 「X曜不可」「X曜休」→ その曜日を不可に
+  ['月','火','水','木','金','土'].forEach((j,i)=>{ if(new RegExp(j+'曜?(?:不可|休)').test(notes||''))c.days[i+1]=false; });
+  return {cond:c, memo:notes||''};
+}
+
 // ── パターン適用後に週間時間上限を超えた割当を週内均等分散で除去（グローバル）──
 function enforceHourLimits(rawAsgn, staff, weeks, slots, pinned, reqMap){
   pinned = pinned || new Set(); // "dk|slotId|staffId" 形式：ベースシフト分は絶対に削らない
@@ -548,9 +578,9 @@ async function autoGenerate(staff,y,m,dates,apiKey,weeklyReq,manualExclusions,sl
     const wh=parseWeeklyHours(s.notes);
     const emp=parseEmploymentType(s.notes);
     const empLabel=emp==='fulltime'?'【常勤】':emp==='parttime'?'【パート】':'';
-    // AI送信時は全角数字を半角に正規化
-    const normalizedNotes=(s.notes||'').replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
-    const lines=normalizedNotes.split('\n').filter(l=>l.trim()).map(l=>`    ・${l.trim()}`).join('\n');
+    // AI送信時は全角数字を半角に正規化。条件文(notes)＋自由メモ(memo)の両方を渡す
+    const combined=((s.notes||'')+(s.memo?('\n'+s.memo):'')).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+    const lines=combined.split('\n').filter(l=>l.trim()).map(l=>`    ・${l.trim()}`).join('\n');
     let constraint='';
     if(wh&&(wh.min>0||wh.max<40)){
       if(wh.min>0&&wh.max<40){
@@ -955,6 +985,43 @@ function MenuDivider(){
   return<div style={{height:1,background:K.bgT,margin:'4px 0'}}/>;
 }
 
+// ── 勤務条件 入力式エディタ ──
+function CondEditor({cond,onCond,memo,onMemo}){
+  const c=cond||defaultCond();
+  const days=c.days||{};
+  const set=(k,v)=>onCond(Object.assign({},c,{[k]:v}));
+  const toggleDay=d=>onCond(Object.assign({},c,{days:Object.assign({},days,{[d]:!days[d]})}));
+  const chip=(active)=>({padding:'5px 10px',borderRadius:8,border:'1.5px solid '+(active?'#185FA5':'#CBD5E1'),background:active?'#EBF4FF':'#fff',color:active?'#185FA5':'#64748B',cursor:'pointer',fontSize:12,fontWeight:active?700:400});
+  const lbl={fontSize:11,color:'#64748B',display:'block',marginBottom:4,fontWeight:600};
+  const inp={padding:'5px 8px',border:'1px solid #CBD5E1',borderRadius:6,fontSize:13,background:'#fff',color:'#1E293B'};
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:10,background:'#F8FAFC',border:'1px solid #E2E8F0',borderRadius:8,padding:'10px 12px',marginBottom:8}}>
+      <div><label style={lbl}>雇用形態</label><div style={{display:'flex',gap:6}}>
+        {[['','指定なし'],['fulltime','常勤'],['parttime','パート']].map(([v,t])=>(<button key={v} onClick={()=>set('emp',v)} style={chip((c.emp||'')===v)}>{t}</button>))}
+      </div></div>
+      <div><label style={lbl}>勤務できる曜日</label><div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+        {[1,2,3,4,5,6].map(d=>(<button key={d} onClick={()=>toggleDay(d)} style={chip(!!days[d])}>{DAY_JP[d]}</button>))}
+      </div></div>
+      <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+        <div><label style={lbl}>出勤できる最も早い時刻</label><input type="time" value={c.start||''} onChange={e=>set('start',e.target.value)} style={inp}/></div>
+        <div><label style={lbl}>退勤時刻（以降は不可）</label><input type="time" value={c.end||''} onChange={e=>set('end',e.target.value)} style={inp}/></div>
+      </div>
+      <div><label style={lbl}>週の労働時間</label>
+        <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13,color:'#475569'}}>
+          <input type="number" min="0" value={c.weekMinH} onChange={e=>set('weekMinH',e.target.value?Number(e.target.value):'')} placeholder="下限" style={Object.assign({width:60},inp)}/> 時間以上
+          <input type="number" min="0" value={c.weekMaxH} onChange={e=>set('weekMaxH',e.target.value?Number(e.target.value):'')} placeholder="上限" style={Object.assign({width:60},inp)}/> 時間以内
+        </div>
+        <div style={{fontSize:10,color:'#94A3B8',marginTop:2}}>空欄なら制限なし</div>
+      </div>
+      <div><label style={lbl}>担当できるコマ</label><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        {[['both','外来・手術 両方'],['out','外来のみ'],['surg','手術のみ']].map(([v,t])=>(<button key={v} onClick={()=>set('slot',v)} style={chip((c.slot||'both')===v)}>{t}</button>))}
+      </div></div>
+      <div><label style={lbl}>自由メモ（隔週・月◯回などの特記。AIが参考にします）</label>
+        <textarea value={memo||''} onChange={e=>onMemo(e.target.value)} rows={2} placeholder="例：土曜は隔週（B週）のみ／土は月1〜2回 など" style={{width:'100%',padding:'6px 9px',border:'1px solid #CBD5E1',borderRadius:6,fontSize:12,boxSizing:'border-box',lineHeight:1.5,background:'#fff',color:'#1E293B'}}/></div>
+    </div>
+  );
+}
+
 // ================================================================
 function App(){
   const saved=useMemo(()=>loadLS(),[]);
@@ -1188,7 +1255,7 @@ function App(){
   const [eid,setEid]=useState(null);
   const [ef,setEf]=useState({});
   const [showAdd,setShowAdd]=useState(false);
-  const [addF,setAddF]=useState({name:'',notes:'',color:COLORS[0],pin:'',workType:'normal'});
+  const [addF,setAddF]=useState({name:'',cond:defaultCond(),memo:'',color:COLORS[0],pin:'',workType:'normal'});
   const [nid,setNid]=useState(()=>saved?.staff?Math.max(...saved.staff.map(s=>s.id),9)+1:10);
   const [aLoad,setALoad]=useState(false);
   const [aRes,setARes]=useState(null);
@@ -2093,9 +2160,32 @@ ${bodyHtml}
   function setPaidGranted(sid,val){
     setPaidLeave(prev=>{const cur=prev[sid]||{granted:0,history:[]};return{...prev,[sid]:{...cur,granted:Math.max(0,Number(val)||0)}};});
   }
-  function doAdd(){if(!addF.name.trim())return;const newId=nid;setStaff(p=>[...p,{id:newId,name:addF.name.trim(),color:addF.color,notes:addF.notes}]);setPaidLeave(prev=>({...prev,[newId]:{granted:0,history:[]}}));setNid(n=>n+1);setAddF({name:'',notes:'',color:COLORS[nid%COLORS.length],pin:'',workType:'normal'});setShowAdd(false);}
-  function sEdit(s){setEid(s.id);setEf({name:s.name,notes:s.notes,color:s.color,pin:s.pin||'',workType:s.workType||'normal'});}
-  function svEdit(){setStaff(p=>p.map(s=>s.id===eid?{...s,...ef}:s));setEid(null);}
+  function doAdd(){
+    if(!addF.name.trim())return;
+    const newId=nid;
+    const cond=addF.cond||defaultCond();
+    const notes=condToNotes(cond);
+    setStaff(p=>[...p,{id:newId,name:addF.name.trim(),color:addF.color,notes,cond,memo:addF.memo||'',pin:addF.pin||'',workType:addF.workType||'normal'}]);
+    setPaidLeave(prev=>({...prev,[newId]:{granted:0,history:[]}}));
+    setNid(n=>n+1);
+    setAddF({name:'',cond:defaultCond(),memo:'',color:COLORS[nid%COLORS.length],pin:'',workType:'normal'});
+    setShowAdd(false);
+  }
+  function sEdit(s){
+    let cond,memo;
+    if(s.cond){cond=s.cond;memo=s.memo||'';}
+    else{const m=notesToCond(s.notes);cond=m.cond;memo=m.memo;}
+    setEid(s.id);setEf({name:s.name,cond,memo,color:s.color,pin:s.pin||'',workType:s.workType||'normal'});
+  }
+  function svEdit(){
+    setStaff(p=>p.map(s=>{
+      if(s.id!==eid)return s;
+      const cond=ef.cond||defaultCond();
+      const notes=condToNotes(cond); // 入力式から“決まった書式”の条件文を生成
+      return {...s,name:ef.name,color:ef.color,pin:ef.pin,workType:ef.workType,cond,memo:ef.memo||'',notes};
+    }));
+    setEid(null);
+  }
 
   // ── 最低勤務時間の自動補完 ──
   function autoFillHours(){
@@ -4051,7 +4141,7 @@ ${bodyHtml}
             <div style={{background:K.bg,border:K.bd,borderRadius:K.rlg,padding:14,marginBottom:14}}>
               <div style={{marginBottom:8}}><label style={{fontSize:11,color:K.textS,display:'block',marginBottom:3}}>氏名</label><input value={addF.name} onChange={e=>setAddF({...addF,name:e.target.value})} placeholder="名前を入力" style={{padding:'5px 9px',border:K.bd,borderRadius:K.rmd,fontSize:13,width:150,background:K.bg,color:K.text}}/></div>
               <div style={{marginBottom:8}}><label style={{fontSize:11,color:K.textS,display:'block',marginBottom:4}}>カラー</label><div style={{display:'flex',gap:7}}>{COLORS.map(c=><button key={c} onClick={()=>setAddF({...addF,color:c})} style={{width:20,height:20,borderRadius:'50%',background:c,cursor:'pointer',border:addF.color===c?'2px solid #1E293B':'2px solid transparent'}}/>)}</div></div>
-              <div style={{marginBottom:10}}><label style={{fontSize:11,color:K.textS,display:'block',marginBottom:3}}>基本勤務条件</label><textarea value={addF.notes} onChange={e=>setAddF({...addF,notes:e.target.value})} rows={3} placeholder="勤務可能日・時間帯など" style={{width:'100%',padding:'5px 9px',border:K.bd,borderRadius:K.rmd,fontSize:12,background:K.bg,color:K.text,boxSizing:'border-box'}}/></div>
+              <div style={{marginBottom:10}}><label style={{fontSize:11,color:K.textS,display:'block',marginBottom:3}}>勤務条件（入力式）</label><CondEditor cond={addF.cond} onCond={c=>setAddF({...addF,cond:c})} memo={addF.memo} onMemo={mm=>setAddF({...addF,memo:mm})}/></div>
               <div style={{marginBottom:10}}><label style={{fontSize:11,color:K.textS,display:'block',marginBottom:3}}>🔐 ポータル暗証番号（4桁）</label><input type="text" inputMode="numeric" maxLength={4} value={addF.pin||''} onChange={e=>setAddF({...addF,pin:e.target.value.replace(/[^0-9]/g,'').slice(0,4)})} placeholder="0000〜9999" style={{padding:'5px 9px',border:K.bd,borderRadius:K.rmd,fontSize:14,width:120,background:K.bg,color:K.text,letterSpacing:'0.15em',fontWeight:600}}/></div>
               <button onClick={doAdd} style={{padding:'6px 18px',background:K.bgI,color:K.textI,border:K.bdI,borderRadius:K.rmd,cursor:'pointer',fontSize:13,fontWeight:500}}>追加する</button>
             </div>
@@ -4063,7 +4153,8 @@ ${bodyHtml}
                   <div>
                     <input value={ef.name||''} onChange={e=>setEf({...ef,name:e.target.value})} style={{padding:'5px 9px',border:K.bd2,borderRadius:K.rmd,fontSize:13,background:K.bg,color:K.text,width:'100%',boxSizing:'border-box',marginBottom:8}}/>
                     <div style={{display:'flex',gap:6,marginBottom:8}}>{COLORS.map(c=><button key={c} onClick={()=>setEf({...ef,color:c})} style={{width:20,height:20,borderRadius:'50%',background:c,cursor:'pointer',border:(ef.color||s.color)===c?'2px solid #1E293B':'2px solid transparent'}}/>)}</div>
-                    <textarea value={ef.notes||''} onChange={e=>setEf({...ef,notes:e.target.value})} rows={4} style={{width:'100%',padding:'5px 9px',border:K.bd2,borderRadius:K.rmd,fontSize:12,background:K.bg,color:K.text,boxSizing:'border-box',marginBottom:8,lineHeight:1.6}}/>
+                    <label style={{fontSize:11,color:K.textS,display:'block',marginBottom:4,fontWeight:600}}>勤務条件（入力式）</label>
+                    <CondEditor cond={ef.cond} onCond={c=>setEf({...ef,cond:c})} memo={ef.memo} onMemo={mm=>setEf({...ef,memo:mm})}/>
                     <div style={{marginBottom:10}}>
                       <label style={{fontSize:11,color:K.textS,display:'block',marginBottom:4}}>📋 出勤申請タイプ</label>
                       <div style={{display:'flex',gap:8}}>
