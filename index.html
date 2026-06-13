@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v34</title>
+<title>シフト管理 v35</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v34';
+const APP_VERSION = 'v35';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2088,57 +2088,39 @@ ${bodyHtml}
     setPreReliefAsgn(null);setReliefChanges([]); // 月を変えたら調整の変更点表示はクリア
   }
 
+  // コマ単位の手動編集。終日休(tmps off)には絶対に触れない。
+  // 「このコマから外す/戻す」はそのコマだけの操作で、同じ日の他コマや終日扱いには影響しない。
   function tog(dk,s2,sid){
     const inAsgn=(asgn[dk]?.[s2]||[]).includes(sid);
     const isExcluded=(manualExclusions[dk]?.[s2]||[]).includes(sid);
-    const hasOff=tmps[dk]?.[String(sid)]?.type==='off';
 
-    if(inAsgn&&!isExcluded){
-      // ① ON → 除外：asgnから削除 + 希望休をtmpsに設定
-      setAsgn(p=>{const d2=p[dk]||{},sl=(d2[s2]||[]).filter(x=>x!==sid);return{...p,[dk]:{...d2,[s2]:sl}};});
-      setTmps(p=>{const d2={...(p[dk]||{})};d2[String(sid)]={type:'off',note:''};return{...p,[dk]:d2};});
-    } else if(!inAsgn&&hasOff){
-      // ② 除外中（希望休）→ 復活：asgnに追加 + tmpsのoffを解除
-      setAsgn(p=>{const d2=p[dk]||{},sl=d2[s2]||[];return{...p,[dk]:{...d2,[s2]:[...sl,sid]}};});
-      setTmps(p=>{const d2={...(p[dk]||{})};delete d2[String(sid)];return{...p,[dk]:d2};});
-    } else if(isExcluded){
-      // ③ manualExclusion除外中 → 解除
+    if(isExcluded){
+      // ① このコマの除外を解除（コマに戻す）
       setManualExclusions(p=>{const d2=p[dk]||{},sl=(d2[s2]||[]).filter(x=>x!==sid);return{...p,[dk]:{...d2,[s2]:sl}};});
+      setAsgn(p=>{const d2={...(p[dk]||{})};const sl=d2[s2]||[];if(!sl.includes(sid))d2[s2]=[...sl,sid];return{...p,[dk]:d2};});
+    } else if(inAsgn){
+      // ② このコマのみ除外（終日休にはしない）
+      setManualExclusions(p=>{const d2={...(p[dk]||{})};const sl=d2[s2]||[];if(!sl.includes(sid))d2[s2]=[...sl,sid];return{...p,[dk]:d2};});
     } else {
-      // ④ OFF（asgnにない）→ 追加
-      setAsgn(p=>{const d2=p[dk]||{},sl=d2[s2]||[];return{...p,[dk]:{...d2,[s2]:[...sl,sid]}};});
-      setTmps(p=>{const d2={...(p[dk]||{})};if(d2[String(sid)]?.type==='off')delete d2[String(sid)];return{...p,[dk]:d2};});
+      // ③ 未配置 → このコマに追加
+      setAsgn(p=>{const d2={...(p[dk]||{})};const sl=d2[s2]||[];if(!sl.includes(sid))d2[s2]=[...sl,sid];return{...p,[dk]:d2};});
     }
   }
 
   function togExclusion(dk,slotId,sid){
     const inAsgn=(asgn[dk]?.[slotId]||[]).includes(sid);
     const isExcluded=(manualExclusions[dk]?.[slotId]||[]).includes(sid);
-    const hasOff=['off','paid','paid_am','paid_pm'].includes(tmps[dk]?.[String(sid)]?.type);
 
-    if(inAsgn&&!isExcluded){
-      // ① バッジON → クリックで除外：asgnから削除 + tmpsに希望休
-      setAsgn(p=>{
-        const d2={...(p[dk]||{})};
-        d2[slotId]=(d2[slotId]||[]).filter(x=>x!==sid);
-        return{...p,[dk]:d2};
-      });
-      setTmps(p=>{const d2={...(p[dk]||{})};d2[String(sid)]={type:'off',note:''};return{...p,[dk]:d2};});
-    } else if(!inAsgn&&hasOff){
-      // ② 除外中（希望休）→ クリックで復活：asgnに追加 + tmpsのoff解除
-      setAsgn(p=>{
-        const d2={...(p[dk]||{})};
-        const sl=d2[slotId]||[];
-        if(!sl.includes(sid))d2[slotId]=[...sl,sid];
-        return{...p,[dk]:d2};
-      });
-      setTmps(p=>{const d2={...(p[dk]||{})};delete d2[String(sid)];return{...p,[dk]:d2};});
-    } else if(isExcluded){
-      // ③ manualExclusion除外中 → 解除
-      setManualExclusions(p=>{
-        const d2=p[dk]||{},sl=(d2[slotId]||[]).filter(x=>x!==sid);
-        return{...p,[dk]:{...d2,[slotId]:sl}};
-      });
+    if(isExcluded){
+      // ① このコマの除外を解除（コマに戻す）
+      setManualExclusions(p=>{const d2=p[dk]||{},sl=(d2[slotId]||[]).filter(x=>x!==sid);return{...p,[dk]:{...d2,[slotId]:sl}};});
+      setAsgn(p=>{const d2={...(p[dk]||{})};const sl=d2[slotId]||[];if(!sl.includes(sid))d2[slotId]=[...sl,sid];return{...p,[dk]:d2};});
+    } else if(inAsgn){
+      // ② このコマのみ除外（同じ日の他コマ・終日扱いには影響しない）
+      setManualExclusions(p=>{const d2={...(p[dk]||{})};const sl=d2[slotId]||[];if(!sl.includes(sid))d2[slotId]=[...sl,sid];return{...p,[dk]:d2};});
+    } else {
+      // ③ 未配置 → このコマに追加
+      setAsgn(p=>{const d2={...(p[dk]||{})};const sl=d2[slotId]||[];if(!sl.includes(sid))d2[slotId]=[...sl,sid];return{...p,[dk]:d2};});
     }
   }
 
@@ -3820,8 +3802,8 @@ ${bodyHtml}
                                             // isOff（tmps由来）のスタッフはバッジを薄く表示して「クリックで復活」を可能にする
                                             return(
                                               <span key={sid}
-                                                onClick={e=>{e.stopPropagation();togExclusion(dk,slot.id,sid);}}
-                                                title={isExcl?'クリックで除外解除':isOffTmp?'希望休中（クリックで復活）':'クリックで除外（希望休に設定）'}
+                                                onClick={e=>{e.stopPropagation();if(!isOffTmp)togExclusion(dk,slot.id,sid);}}
+                                                title={isOffTmp?'終日休（臨時条件タブで設定）':isExcl?'クリックでこのコマに戻す':'クリックでこのコマから外す（この日の他コマ・終日休には影響しません）'}
                                                 style={{fontSize:'var(--fs-badge)',background:isOffTmp?'#94A3B8':s.color,color:'#fff',borderRadius:3,padding:'1px 3px',cursor:'pointer',userSelect:'none',whiteSpace:'nowrap',
                                                   opacity:(isExcl||isOffTmp)?0.35:1,textDecoration:(isExcl||isOffTmp)?'line-through':'none',
                                                   boxShadow:isReliefAdded?'0 0 0 2px #16A34A':'none'}}>
