@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v16</title>
+<title>シフト管理 v17</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v16';
+const APP_VERSION = 'v17';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -595,6 +595,17 @@ const SB={
       return d[0]?.data||null;
     }catch(e){console.error('SB.get error:',e);return null;}
   },
+  // ok=クラウドに到達できたか（empty と 通信失敗 を区別する）
+  async getSafe(table){
+    try{
+      const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main&select=data`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      if(!r.ok)return {ok:false,data:null};
+      const d=await r.json();
+      return {ok:true,data:d[0]?.data||null};
+    }catch(e){console.error('SB.getSafe error:',e);return {ok:false,data:null};}
+  },
   async set(table,data){
     try{
       const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main`,{
@@ -830,6 +841,8 @@ function App(){
   const [appMode,setAppMode]=useState('select'); // 'select'|'admin'|'staff'
   const [sbLoading,setSbLoading]=useState(false);
   const [sbStatus,setSbStatus]=useState(''); // ''|'ok'|'error'
+  // クラウド読み込みが成功するまで自動保存を止める安全装置（古いデータでクラウドを上書きしないため）
+  const sbReadyRef=React.useRef(false);
 
   // Supabaseからデータ読み込み（管理者モード起動時）
   React.useEffect(()=>{
@@ -837,7 +850,12 @@ function App(){
     setSbLoading(true);
     (async()=>{
       try{
-        const [sd,rd]=await Promise.all([SB.get('shift_data'),SB.get('requests_data')]);
+        const [sdR,rdR]=await Promise.all([SB.getSafe('shift_data'),SB.getSafe('requests_data')]);
+        if(!sdR.ok){
+          // クラウドに到達できなかった → 自動保存は有効化しない（古いローカルでクラウドを上書きしないため）
+          setSbStatus('error');setSbLoading(false);return;
+        }
+        const sd=sdR.data, rd=rdR.data;
         if(sd&&Object.keys(sd).length>0){
           if(sd.staff)setStaff(sd.staff);
           if(sd.slots)setSlots(sd.slots);
@@ -853,6 +871,7 @@ function App(){
           if(sd.y)setY(sd.y);if(sd.m)setM(sd.m);
         }
         if(rd)setRequests(rd);
+        sbReadyRef.current=true; // クラウド読み込み成功 → これ以降のみ自動保存を許可
         setSbStatus('ok');
       }catch(e){setSbStatus('error');}
       setSbLoading(false);
@@ -865,7 +884,9 @@ function App(){
     setSbLoading(true);
     (async()=>{
       try{
-        const [sd,rd]=await Promise.all([SB.get('shift_data'),SB.get('requests_data')]);
+        const [sdR,rdR]=await Promise.all([SB.getSafe('shift_data'),SB.getSafe('requests_data')]);
+        if(!rdR.ok){setSbStatus('error');setSbLoading(false);return;} // 申請の読込失敗時は保存を有効化しない
+        const sd=sdR.data, rd=rdR.data;
         if(sd&&Object.keys(sd).length>0){
           if(sd.staff)setStaff(sd.staff);
           if(sd.slots)setSlots(sd.slots);
@@ -876,6 +897,7 @@ function App(){
           if(sd.y)setY(sd.y);if(sd.m)setM(sd.m);
         }
         if(rd)setRequests(rd);
+        sbReadyRef.current=true; // クラウド読み込み成功 → これ以降のみ自動保存を許可
         setSbStatus('ok');
       }catch(e){setSbStatus('error');}
       setSbLoading(false);
@@ -884,7 +906,7 @@ function App(){
 
   // スタッフモード：requestsが変わったらSupabaseに即保存
   React.useEffect(()=>{
-    if(appMode!=='staff'||!SB_ENABLED)return;
+    if(appMode!=='staff'||!SB_ENABLED||!sbReadyRef.current)return;
     SB.set('requests_data',requests);
   },[requests,appMode]);
 
@@ -1062,7 +1084,7 @@ function App(){
   // Supabase自動保存（管理者モード・変更から2秒後）
   const sbSaveTimer=React.useRef(null);
   useEffect(()=>{
-    if(appMode!=='admin'||!SB_ENABLED)return;
+    if(appMode!=='admin'||!SB_ENABLED||!sbReadyRef.current)return; // クラウド読込成功後のみ保存（古いデータでの上書き防止）
     if(sbSaveTimer.current)clearTimeout(sbSaveTimer.current);
     sbSaveTimer.current=setTimeout(async()=>{
       const data={y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave};
@@ -1073,7 +1095,7 @@ function App(){
   // Supabase自動保存（requests）※shift_dataとは別タイマーで保存（互いに上書きしないように）
   const sbReqSaveTimer=React.useRef(null);
   useEffect(()=>{
-    if(!SB_ENABLED)return;
+    if(!SB_ENABLED||!sbReadyRef.current)return; // クラウド読込成功後のみ保存
     if(sbReqSaveTimer.current)clearTimeout(sbReqSaveTimer.current);
     sbReqSaveTimer.current=setTimeout(async()=>{
       await SB.set('requests_data',requests);
@@ -1151,15 +1173,12 @@ function App(){
   async function saveData(){
     const data={version:2,savedAt:new Date().toISOString(),staff,slots,weeklyReq,monthlyReq,asgn,tmps,manualExclusions,manualClosedDays,baseShift,y,m,newSlotCounter,paidLeave};
     const json=JSON.stringify(data,null,2);
-    const fileName='shift_data_'+y+'_'+String(m).padStart(2,'0')+'.json';
-    if(window.showSaveFilePicker){
-      try{
-        const fh=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'JSONファイル',accept:{'application/json':['.json']}}]});
-        const w=await fh.createWritable();await w.write(json);await w.close();return;
-      }catch(e){if(e.name==='AbortError')return;}
-    }
+    // 時刻入りファイル名（毎回別ファイルになり、空ファイルとの取り違えを防ぐ）
+    const ts=new Date();const pad=n=>String(n).padStart(2,'0');
+    const fileName='shift_data_'+y+'_'+String(m).padStart(2,'0')+'_'+ts.getFullYear()+pad(ts.getMonth()+1)+pad(ts.getDate())+'-'+pad(ts.getHours())+pad(ts.getMinutes())+'.json';
+    // ダウンロード方式に統一（ファイルピッカーの中途半端な書き込みで空ファイルが残る不具合を回避）
     const blob=new Blob([json],{type:'application/json'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fileName;a.click();URL.revokeObjectURL(a.href);
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fileName;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   }
 
   // ── スタッフポータル用データ出力 ──
