@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v23</title>
+<title>シフト管理 v24</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v23';
+const APP_VERSION = 'v24';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -113,6 +113,14 @@ function leaveNoteForSlot(notes,slot){
   return '';
 }
 
+// 日時スタンプ整形（作成日時表示用）"2026/7/4 14:30"
+function fmtStamp(iso){
+  if(!iso)return '';
+  try{const d=new Date(iso);if(isNaN(d))return '';
+    const p=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }catch(e){return '';}
+}
 // 印刷用ウインドウに「🖨 印刷」ボタンを差し込む（自動印刷はせず、押したときだけ印刷）
 function injectPrintButton(printWin){
   try{
@@ -930,6 +938,8 @@ function App(){
           if(sd.baseShift)setBaseShift(sd.baseShift);
           if(sd.paidLeave)setPaidLeave(sd.paidLeave);
           if(sd.newSlotCounter)setNewSlotCounter(sd.newSlotCounter);
+          shiftStampLoadRef.current=true; // 読込では作成日時を更新しない
+          if(sd.shiftUpdatedAt!==undefined)setShiftUpdatedAt(sd.shiftUpdatedAt||'');
           if(sd.y)setY(sd.y);if(sd.m)setM(sd.m);
         }
         if(rd)setRequests(rd);
@@ -1087,6 +1097,8 @@ function App(){
   STAFF_NOTES_LOOKUP={};(staff||[]).forEach(s=>{STAFF_NOTES_LOOKUP[s.id]=s.notes;});
   const [asgn,setAsgn]=useState(()=>saved?.asgn||{});
   const [tmps,setTmps]=useState(()=>saved?.tmps||{});
+  // シフト表の最終更新日時（作成・編集のたびに更新）
+  const [shiftUpdatedAt,setShiftUpdatedAt]=useState(()=>saved?.shiftUpdatedAt||'');
   const [selDk,setSelDk]=useState(null);
   const [dtab,setDtab]=useState('assign');
   const [eid,setEid]=useState(null);
@@ -1142,11 +1154,23 @@ function App(){
     return init;
   });
 
+  // ── シフト表の更新日時を記録（管理者の編集・再作成のたびに更新）──
+  // 初回マウントとクラウド/復元読込はスキップ（読込で日時が変わらないように）
+  const shiftStampSkipRef=React.useRef(true);
+  const shiftStampLoadRef=React.useRef(false);
+  useEffect(()=>{
+    if(shiftStampSkipRef.current){shiftStampSkipRef.current=false;return;}
+    if(shiftStampLoadRef.current){shiftStampLoadRef.current=false;return;}
+    if(appMode!=='admin')return; // 編集できるのは管理者のみ
+    setShiftUpdatedAt(new Date().toISOString());
+  // eslint-disable-next-line
+  },[asgn,tmps,manualExclusions]);
+
   // ── 自動保存 ──
   // ローカル自動保存
   useEffect(()=>{
-    saveLS({y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave});
-  },[y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave]);
+    saveLS({y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,shiftUpdatedAt});
+  },[y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,shiftUpdatedAt]);
 
   // Supabase自動保存（管理者モード・変更から2秒後）
   const sbSaveTimer=React.useRef(null);
@@ -1154,10 +1178,10 @@ function App(){
     if(appMode!=='admin'||!SB_ENABLED||!sbReadyRef.current)return; // クラウド読込成功後のみ保存（古いデータでの上書き防止）
     if(sbSaveTimer.current)clearTimeout(sbSaveTimer.current);
     sbSaveTimer.current=setTimeout(async()=>{
-      const data={y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave};
+      const data={y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,shiftUpdatedAt};
       await SB.set('shift_data',data);
     },2000);
-  },[y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,appMode]);
+  },[y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,shiftUpdatedAt,appMode]);
 
   // Supabase自動保存（requests）※shift_dataとは別タイマーで保存（互いに上書きしないように）
   const sbReqSaveTimer=React.useRef(null);
@@ -1238,7 +1262,7 @@ function App(){
 
   // ── データ保存 ──
   async function saveData(){
-    const data={version:2,savedAt:new Date().toISOString(),staff,slots,weeklyReq,monthlyReq,asgn,tmps,manualExclusions,manualClosedDays,baseShift,y,m,newSlotCounter,paidLeave};
+    const data={version:2,savedAt:new Date().toISOString(),shiftUpdatedAt,staff,slots,weeklyReq,monthlyReq,asgn,tmps,manualExclusions,manualClosedDays,baseShift,y,m,newSlotCounter,paidLeave};
     const json=JSON.stringify(data,null,2);
     // 時刻入りファイル名（毎回別ファイルになり、空ファイルとの取り違えを防ぐ）
     const ts=new Date();const pad=n=>String(n).padStart(2,'0');
@@ -1441,7 +1465,7 @@ td.sat{background:#FFFBEB}
 @media print{body{transform:scale(${scale});transform-origin:top left;width:calc(210mm / ${scale});padding:0}}
 </style></head><body>
 <h1>医療法人　福耳会　シフト表　${y}年 ${m}月</h1>
-<div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
+<div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}　／　シフト作成: ${shiftUpdatedAt?fmtStamp(shiftUpdatedAt):'—'}</div>
 <table><thead><tr><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr></thead><tbody>${calHtml}</tbody></table>
 </body></html>`);
     printWin.document.close();injectPrintButton(printWin);
@@ -1527,7 +1551,7 @@ td.cell-off{background:#fff}
 @media print{body{transform:scale(${scale});transform-origin:top left;width:calc(297mm / ${scale});padding:0}}
 </style></head><body>
 <h1>医療法人　福耳会　個人別シフト表　${y}年 ${m}月</h1>
-<div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
+<div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}　／　シフト作成: ${shiftUpdatedAt?fmtStamp(shiftUpdatedAt):'—'}</div>
 <table><thead><tr><th class="name-h">スタッフ</th>${thHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
 </body></html>`);
     printWin.document.close();injectPrintButton(printWin);
@@ -1741,7 +1765,7 @@ h1{font-size:16pt;font-weight:700;margin-bottom:3mm}
 @page{size:A4 portrait;margin:0}
 </style></head><body>
 <h1>医療法人　福耳会　達成レポート　${y}年 ${m}月</h1>
-<div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
+<div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}　／　シフト作成: ${shiftUpdatedAt?fmtStamp(shiftUpdatedAt):'—'}</div>
 ${bodyHtml}
 </body></html>`);
     printWin.document.close();injectPrintButton(printWin);
@@ -3197,6 +3221,9 @@ ${bodyHtml}
             <span style={{fontWeight:700,fontSize:'var(--fs-nav)'}}>{y}年 {m}月</span>
             <button onClick={()=>nav(1)}  style={{border:K.bd2,borderRadius:K.rmd,padding:'4px 10px',background:K.bg,cursor:'pointer',fontSize:'var(--fs-nav)'}}>▶</button>
             <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{fontSize:11,color:K.textS,background:K.bgS,border:K.bd,borderRadius:8,padding:'3px 9px',whiteSpace:'nowrap'}}>
+                🕒 作成: {shiftUpdatedAt?fmtStamp(shiftUpdatedAt):'—'}
+              </span>
               <button onClick={applyOvertimeRelief} title="①余剰枠→不足枠へ配置を均す ②8時間超の人を末尾コマから外し空いた枠を延長で補う"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（偏り・超過）</button>
               {preReliefAsgn!=null&&(
