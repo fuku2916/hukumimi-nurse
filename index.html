@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v12</title>
+<title>シフト管理 v13</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2656,15 +2656,16 @@ ${bodyHtml}
                 </span>
               )}
             </div>
-            <div style={{overflowX:'auto',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
+            <div style={{overflow:'auto',maxHeight:'calc(100vh - 150px)',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
               <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
                 <thead>
                   <tr style={{background:'#F8FAFC'}}>
-                    <th style={{padding:'10px 14px',border:'1px solid #E2E8F0',textAlign:'left',fontSize:13,fontWeight:600,minWidth:80,position:'sticky',left:0,background:'#F8FAFC',zIndex:2}}>スタッフ</th>
+                    <th style={{padding:'10px 14px',border:'1px solid #E2E8F0',textAlign:'left',fontSize:13,fontWeight:600,minWidth:80,position:'sticky',left:0,top:0,background:'#F8FAFC',zIndex:4}}>スタッフ</th>
                     {staffDates.map(d=>{
                       const dk=tdk(d),isSat=d.getDay()===6,isClosed=staffIsClosedDay(dk),holName=staffHolidays[dk];
                       return(
                         <th key={dk} style={{padding:'8px 5px',border:'1px solid #E2E8F0',textAlign:'center',fontSize:12,fontWeight:600,minWidth:52,
+                          position:'sticky',top:0,zIndex:3,
                           background:isClosed?'#FEF2F2':isSat?'#FFFBEB':'#F8FAFC',
                           color:holName?'#991B1B':isSat?'#92400E':'#64748B'}}>
                           <div style={{fontSize:14,fontWeight:700}}>{d.getDate()}</div>
