@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v24</title>
+<title>シフト管理 v25</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v24';
+const APP_VERSION = 'v25';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -966,6 +966,10 @@ function App(){
           if(sd.tmps)setTmps(sd.tmps);
           if(sd.manualClosedDays)setManualClosedDays(sd.manualClosedDays);
           if(sd.paidLeave)setPaidLeave(sd.paidLeave);
+          // 人員不足の表示に必要（必要人数・除外）
+          if(sd.weeklyReq)setWeeklyReq(sd.weeklyReq);
+          if(sd.monthlyReq)setMonthlyReq(sd.monthlyReq);
+          if(sd.manualExclusions)setManualExclusions(sd.manualExclusions);
           if(sd.y)setY(sd.y);if(sd.m)setM(sd.m);
         }
         if(rd)setRequests(rd);
@@ -2935,21 +2939,51 @@ ${bodyHtml}
               <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
                 <thead>
                   <tr style={{background:'#F8FAFC'}}>
-                    <th style={{padding:'10px 14px',border:'1px solid #E2E8F0',textAlign:'left',fontSize:13,fontWeight:600,minWidth:80,position:'sticky',left:0,top:0,background:'#F8FAFC',zIndex:4}}>スタッフ</th>
+                    <th style={{padding:'6px 14px',height:48,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'left',fontSize:13,fontWeight:600,minWidth:80,position:'sticky',left:0,top:0,background:'#F8FAFC',zIndex:6}}>スタッフ</th>
                     {staffDates.map(d=>{
                       const dk=tdk(d),isSat=d.getDay()===6,isClosed=staffIsClosedDay(dk),holName=staffHolidays[dk];
                       return(
-                        <th key={dk} style={{padding:'8px 5px',border:'1px solid #E2E8F0',textAlign:'center',fontSize:12,fontWeight:600,minWidth:52,
+                        <th key={dk} style={{padding:'6px 5px',height:48,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'center',fontSize:12,fontWeight:600,minWidth:52,
                           position:'sticky',top:0,zIndex:3,
                           background:isClosed?'#FEF2F2':isSat?'#FFFBEB':'#F8FAFC',
                           color:holName?'#991B1B':isSat?'#92400E':'#64748B'}}>
                           <div style={{fontSize:14,fontWeight:700}}>{d.getDate()}</div>
                           <div style={{fontSize:11,fontWeight:400}}>{DAY_JP[d.getDay()]}</div>
-                          {holName&&<div style={{fontSize:10,color:'#991B1B',lineHeight:1.2}}>{holName.slice(0,3)}</div>}
+                          {holName&&<div style={{fontSize:9,color:'#991B1B',lineHeight:1}}>{holName.slice(0,3)}</div>}
                         </th>
                       );
                     })}
                   </tr>
+                  {/* 充足度（人員不足⚠）— 日付の下に固定表示 */}
+                  {(()=>{
+                    const labels=[],seen={};
+                    [1,2,3,4,5,6].forEach(dw=>{(slots[dw]||[]).forEach(sl=>{if(!seen[sl.label]){seen[sl.label]=true;labels.push(sl.label);}});});
+                    return labels.map((label,idx)=>{
+                      const topPx=48+idx*20;
+                      return(
+                        <tr key={'cov_'+label}>
+                          <th style={{padding:'0 8px',height:20,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'left',fontSize:10,fontWeight:600,color:'#9A3412',whiteSpace:'nowrap',position:'sticky',left:0,top:topPx,zIndex:6,background:'#FFF7ED'}}>{idx===0?'⚠ 充足度 ':''}{label}</th>
+                          {staffDates.map(d=>{
+                            const dk=tdk(d),dow=d.getDay();
+                            const slot=(slots[dow]||[]).find(x=>x.label===label);
+                            let short=false;
+                            if(slot&&!staffIsClosedDay(dk)){
+                              const req=getReq(dk,slot.id);
+                              if(req>0){
+                                const offIds=Object.entries(tmps[dk]||{}).filter(([,v])=>['off','paid'].includes(v.type)).map(([sid])=>parseInt(sid));
+                                const excl=manualExclusions[dk]?.[slot.id]||[];
+                                const active=(asgn[dk]?.[slot.id]||[]).filter(id=>!excl.includes(id)&&!offIds.includes(id)).length;
+                                if(active<req)short=true;
+                              }
+                            }
+                            return(
+                              <td key={dk} style={{height:20,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'center',fontSize:11,padding:0,position:'sticky',top:topPx,zIndex:3,background:short?'#FFF7ED':(slot?'#fff':'#F8FAFC'),color:'#C2410C'}}>{short?'⚠':''}</td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    });
+                  })()}
                 </thead>
                 <tbody>
                   {staff.map(s=>{
@@ -2957,7 +2991,7 @@ ${bodyHtml}
                     return(
                       <tr key={s.id} style={{background:isMe?'#FAFEFF':''}}>
                         <td style={{padding:'8px 12px',border:'1px solid #E2E8F0',whiteSpace:'nowrap',
-                          position:'sticky',left:0,zIndex:1,
+                          position:'sticky',left:0,zIndex:2,
                           background:isMe?'#EBF4FF':'#FAFAFA',
                           borderLeft:isMe?'3px solid '+s.color:'1px solid #E2E8F0'}}>
                           <div style={{display:'flex',alignItems:'center',gap:5}}>
