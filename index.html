@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v19</title>
+<title>シフト管理 v20</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v19';
+const APP_VERSION = 'v20';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -377,7 +377,7 @@ function daySpanHours(ranges, leaveLimitMin){
   if(leaveLimitMin!=null) end=Math.min(end, Math.max(start, leaveLimitMin));
   let span=end-start;
   if(span<=0)return 0;
-  if(span>=360) span-=60; // 6時間以上の勤務は休憩1時間
+  if(span>360) span-=60; // 6時間を「超える」勤務は休憩1時間（6時間ちょうどは休憩なし）
   return span/60;
 }
 function dayHours(dk,staffId,asgn,excl,slotsState,staffArr){
@@ -2362,6 +2362,87 @@ ${bodyHtml}
     return na;
   }
 
+  // ── 超過勤務(1日8時間超)の自動調整 ──
+  // ①超過者を末尾コマから外して8時間以内に収める
+  // ②空いた枠は「その日すでに出勤していて前後を延長すれば入れる人」で補う（1時間のために新規出勤はさせない）
+  function relieveDailyOvertime(rawAsgn){
+    const na={};
+    Object.entries(rawAsgn||{}).forEach(([dk,sm])=>{na[dk]={};Object.entries(sm).forEach(([slotId,ids])=>{na[dk][slotId]=[...(ids||[])];});});
+    const isOffOrExcl=(dk,slotId,sid)=>{
+      if((manualExclusions[dk]?.[slotId]||[]).includes(sid))return true;
+      const tc=tmps[dk]?.[String(sid)];
+      return !!(tc&&['off','paid','paid_am','paid_pm'].includes(tc.type));
+    };
+    const staffRanges=(dk,sid)=>{
+      const dow=new Date(dk).getDay(); const out=[];
+      Object.entries(na[dk]||{}).forEach(([slotId,ids])=>{
+        if(!ids.includes(sid))return;
+        if(isOffOrExcl(dk,slotId,sid))return;
+        const slot=(slots[dow]||[]).find(s=>s.id===slotId);
+        const r=slot?slotRangeMin(slot):null;
+        if(r&&r.s!=null&&r.e!=null)out.push({slotId,s:r.s,e:r.e});
+      });
+      return out;
+    };
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk)||!na[dk])return;
+      const dow=d.getDay();
+      const week=weeks.find(w=>w.some(x=>tdk(x)===dk))||[];
+      // ① トリム：超過者を末尾コマから外す
+      staff.forEach(s=>{
+        let guard=0;
+        while(dayHours(dk,s.id,na,manualExclusions,slots,staff)>DAILY_LIMIT && guard++<12){
+          const rs=staffRanges(dk,s.id);
+          if(rs.length<=1)break; // 1コマだけなら外せない
+          rs.sort((a,b)=>b.e-a.e||b.s-a.s); // 最も遅く終わるコマ
+          na[dk][rs[0].slotId]=(na[dk][rs[0].slotId]||[]).filter(x=>x!==s.id);
+        }
+      });
+      // ② 不足枠を「その日出勤中の人の延長」で補う
+      (slots[dow]||[]).forEach(slot=>{
+        const req=getReq(dk,slot.id); if(req<=0)return;
+        const activeCnt=()=> (na[dk][slot.id]||[]).filter(sid=>!isOffOrExcl(dk,slot.id,sid)).length;
+        if(activeCnt()>=req)return;
+        const r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return;
+        const cands=staff.filter(s=>{
+          if((na[dk][slot.id]||[]).includes(s.id))return false;
+          if(isOffOrExcl(dk,slot.id,s.id))return false;
+          const sp=staffRanges(dk,s.id); if(sp.length===0)return false; // その日出勤していない人は呼ばない
+          const cs=Math.min.apply(null,sp.map(x=>x.s)), ce=Math.max.apply(null,sp.map(x=>x.e));
+          if(!(r.s<=ce && r.e>=cs))return false; // 既存シフトと前後で連続/重複している（延長で入れる）
+          // スキル：このコマにベース(A/B)登録 or 当月の同曜日でこのコマを担当している
+          const inBase=['A','B'].some(p=>(((baseShift[p]||{})[dow]||{})[slot.id]||[]).includes(s.id));
+          const elsewhere=dates.some(d2=>{const k2=tdk(d2);return d2.getDay()===dow&&k2!==dk&&(na[k2]?.[slot.id]||[]).includes(s.id);});
+          if(!inBase&&!elsewhere)return false;
+          // 延長後も8時間以内・週上限以内
+          const trial={...na,[dk]:{...na[dk],[slot.id]:[...(na[dk][slot.id]||[]),s.id]}};
+          if(dayHours(dk,s.id,trial,manualExclusions,slots,staff)>DAILY_LIMIT)return false;
+          const wh=parseWeeklyHours(s.notes);
+          if(wh&&wh.max>0&&week.length>0){
+            const wkH=week.reduce((sum,d3)=>sum+dayHours(tdk(d3),s.id,trial,manualExclusions,slots,staff),0);
+            if(wkH>Math.min(wh.max,WEEKLY_LIMIT))return false;
+          }
+          return true;
+        });
+        // 追加負担（延長で増える時間）が少ない順
+        const extra=(sid)=>{const sp=staffRanges(dk,sid);const cs=Math.min.apply(null,sp.map(x=>x.s)),ce=Math.max.apply(null,sp.map(x=>x.e));return (Math.max(ce,r.e)-Math.min(cs,r.s))-(ce-cs);};
+        cands.sort((a,b)=>extra(a.id)-extra(b.id));
+        for(const c of cands){ if(activeCnt()>=req)break; na[dk][slot.id]=[...(na[dk][slot.id]||[]),c.id]; }
+      });
+    });
+    return na;
+  }
+  function applyOvertimeRelief(){
+    const before=JSON.stringify(asgn);
+    const fixed=relieveDailyOvertime(asgn);
+    setAsgn(fixed);
+    // 調整後の残存超過を数える
+    let over=0;
+    dates.forEach(d=>{const dk=tdk(d);if(isClosedDay(dk))return;staff.forEach(s=>{if(dayHours(dk,s.id,fixed,manualExclusions,slots,staff)>DAILY_LIMIT)over++;});});
+    const changed=JSON.stringify(fixed)!==before;
+    alert(changed?('超過勤務の自動調整を行いました。'+(over>0?'\nまだ解消できない超過が'+over+'件あります（延長できる人がいない枠）。':'\n8時間超は解消されました。')):'調整対象（8時間超）はありませんでした。');
+  }
+
   // ── ベースシフトのコマ被覆を保証（時間調整で消えた金土などを最後に復活）──
   // 労働時間調整(enforceHourLimits)が週後半の枠を削って金・土が空になるのを防ぐため、
   // ベースシフトで指定されたスタッフを各開院日のコマに必ず再充当する。
@@ -3009,6 +3090,8 @@ ${bodyHtml}
             <span style={{fontWeight:700,fontSize:'var(--fs-nav)'}}>{y}年 {m}月</span>
             <button onClick={()=>nav(1)}  style={{border:K.bd2,borderRadius:K.rmd,padding:'4px 10px',background:K.bg,cursor:'pointer',fontSize:'var(--fs-nav)'}}>▶</button>
             <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <button onClick={applyOvertimeRelief} title="8時間超の人を末尾コマから外し、空いた枠はその日出勤中の人の延長で補います"
+                style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 超過勤務を自動調整</button>
               {aErr&&aErr!=='AUTH_ERROR'&&(
                 <div style={{fontSize:11,color:K.textD,maxWidth:300,lineHeight:1.4,cursor:'pointer'}} title={aErr} onClick={()=>alert(aErr)}>エラー（詳細はクリック）</div>
               )}
