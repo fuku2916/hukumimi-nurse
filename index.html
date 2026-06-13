@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v35</title>
+<title>シフト管理 v36</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v35';
+const APP_VERSION = 'v36';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2792,6 +2792,110 @@ ${bodyHtml}
     });
     return na;
   }
+  // ── 拘束時間の最小化（コマ入れ替え最適化 / 2-opt）──
+  // 同じ人に時間が離れたコマ（例：午前＋夜）が割り当たると拘束時間（最初〜最後の幅）が
+  // 伸びて残業になる。これを「2人のコマを交換」して各人の span 合計が縮むなら入れ替える。
+  // 交換なので各コマの人数・スキル種別は不変。ベースシフト/有給/希望休/手動除外は動かさない。
+  function compactDaySpans(rawAsgn){
+    const na={};
+    Object.entries(rawAsgn||{}).forEach(([dk,sm])=>{na[dk]={};Object.entries(sm).forEach(([slotId,ids])=>{na[dk][slotId]=[...(ids||[])];});});
+    const isOffOrExcl=(dk,slotId,sid)=>{
+      if((manualExclusions[dk]?.[slotId]||[]).includes(sid))return true;
+      const tc=tmps[dk]?.[String(sid)];
+      return !!(tc&&['off','paid','paid_am','paid_pm'].includes(tc.type));
+    };
+    const isBasePinned=(d,slotId,sid)=>{
+      const pat=getABPatternForDate(d), dow=d.getDay();
+      return (((baseShift[pat]||{})[dow]||{})[slotId]||[]).includes(sid);
+    };
+    const OT=100; // 残業1hあたりのペナルティ（残業を作る入れ替えは必ずコスト増→不採用に）
+    const personCost=(dk,sid,state)=>{
+      const h=dayHours(dk,sid,state,manualExclusions,slots,staff);
+      return h + (h>DAILY_LIMIT ? (h-DAILY_LIMIT)*OT : 0);
+    };
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk)||!na[dk])return;
+      const dow=d.getDay();
+      const week=weeks.find(w=>w.some(x=>tdk(x)===dk))||[];
+      const daySlots=slots[dow]||[];
+      let guard=0, improved=true;
+      while(improved && guard++<60){
+        improved=false;
+        for(let i=0;i<daySlots.length && !improved;i++){
+          for(let j=0;j<daySlots.length && !improved;j++){
+            const A=daySlots[i], B=daySlots[j];
+            if(A.id===B.id)continue;
+            if(A.type!==B.type)continue; // 同種コマ間のみ（スキル安全）
+            const aIds=(na[dk][A.id]||[]).filter(sid=>!isOffOrExcl(dk,A.id,sid));
+            const bIds=(na[dk][B.id]||[]).filter(sid=>!isOffOrExcl(dk,B.id,sid));
+            for(const x of aIds){
+              if(isBasePinned(d,A.id,x))continue;          // ベース固定は外さない
+              if((na[dk][B.id]||[]).includes(x))continue;   // 既にBにいる
+              const sx=staff.find(s=>s.id===x); if(!sx||!canCoverSlot(sx,B,dow))continue;
+              for(const y of bIds){
+                if(y===x)continue;
+                if(isBasePinned(d,B.id,y))continue;
+                if((na[dk][A.id]||[]).includes(y))continue;
+                const sy=staff.find(s=>s.id===y); if(!sy||!canCoverSlot(sy,A,dow))continue;
+                // x↔y の交換を試算
+                const trial={...na,[dk]:{...na[dk],
+                  [A.id]:(na[dk][A.id]||[]).map(z=>z===x?y:z),
+                  [B.id]:(na[dk][B.id]||[]).map(z=>z===y?x:z)}};
+                const before=personCost(dk,x,na)+personCost(dk,y,na);
+                const after =personCost(dk,x,trial)+personCost(dk,y,trial);
+                if(after < before-1e-6){
+                  // 週上限を悪化させない
+                  let wkOK=true;
+                  if(week.length>0){
+                    for(const sid of [x,y]){
+                      const so=(sid===x)?sx:sy;
+                      const wh=parseWeeklyHours(so.notes);
+                      if(wh&&wh.max>0){
+                        const wkH=week.reduce((s2,d3)=>s2+dayHours(tdk(d3),sid,trial,manualExclusions,slots,staff),0);
+                        if(wkH>Math.min(wh.max,WEEKLY_LIMIT)){wkOK=false;break;}
+                      }
+                    }
+                  }
+                  if(wkOK){
+                    na[dk][A.id]=trial[dk][A.id];
+                    na[dk][B.id]=trial[dk][B.id];
+                    improved=true; break;
+                  }
+                }
+              }
+              if(improved)break;
+            }
+          }
+        }
+      }
+    });
+    return na;
+  }
+  function applySpanCompaction(){
+    const beforeAsgn=asgn;
+    const fixed=compactDaySpans(asgn);
+    const nameOf=id=>(staff.find(s=>s.id===id)||{}).name||('ID'+id);
+    const changes=[];
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk))return;
+      const dow=d.getDay();
+      (slots[dow]||[]).forEach(slot=>{
+        const b=(beforeAsgn[dk]?.[slot.id]||[]);
+        const a=(fixed[dk]?.[slot.id]||[]);
+        const removed=b.filter(id=>!a.includes(id));
+        const added=a.filter(id=>!b.includes(id));
+        if(removed.length||added.length){
+          changes.push({dk,slotId:slot.id,slotLabel:slot.label,m:d.getMonth()+1,day:d.getDate(),dow,
+            removed:removed.map(id=>({id,name:nameOf(id)})), added:added.map(id=>({id,name:nameOf(id)}))});
+        }
+      });
+    });
+    if(changes.length===0){alert('入れ替えで短縮できる拘束時間はありませんでした。');return;}
+    setPreReliefAsgn(beforeAsgn);
+    setReliefChanges(changes);
+    setAsgn(fixed);
+    alert('拘束時間を最適化しました（入れ替え '+changes.length+'件）。\n各人の勤務が時間的に連続するようコマを入れ替えています。\n変更点は表の上に一覧表示され、移動先には ✦ が付きます。\n「元に戻す」で取り消せます。');
+  }
   function applyOvertimeRelief(){
     const beforeAsgn=asgn;
     // ①勤務不可/半分も出られないコマから除去 → ②偏り調整 → ③超過勤務の調整（トリム＋延長）
@@ -3574,6 +3678,8 @@ ${bodyHtml}
               )}
               <button onClick={applyOvertimeRelief} title="①余剰枠→不足枠へ配置を均す ②8時間超の人を末尾コマから外し空いた枠を延長で補う"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（偏り・超過）</button>
+              <button onClick={applySpanCompaction} title="同じ人に時間が離れたコマ（午前＋夜など）が割り当たって拘束時間が伸びている所を、2人のコマを入れ替えて勤務が連続するよう短縮します。ベースシフトの駒・有給・希望休・除外した駒は動かしません。変更点はプレビュー表示され、元に戻せます。"
+                style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #2563EB',background:'#EFF6FF',color:'#1E40AF',whiteSpace:'nowrap'}}>⏱ 拘束時間を最適化</button>
               {preReliefAsgn!=null&&(
                 <button onClick={undoOvertimeRelief} title="自動調整を取り消して調整前に戻します"
                   style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #64748B',background:'#F1F5F9',color:'#334155',whiteSpace:'nowrap'}}>↩ 元に戻す</button>
