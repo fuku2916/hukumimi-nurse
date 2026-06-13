@@ -241,7 +241,8 @@ function parseEmploymentType(notes){
 }
 
 // ── パターン適用後に週間時間上限を超えた割当を週内均等分散で除去（グローバル）──
-function enforceHourLimits(rawAsgn, staff, weeks, slots){
+function enforceHourLimits(rawAsgn, staff, weeks, slots, pinned){
+  pinned = pinned || new Set(); // "dk|slotId|staffId" 形式：ベースシフト分は絶対に削らない
   const na={};
   Object.entries(rawAsgn).forEach(([dk,sm])=>{
     na[dk]={};
@@ -259,7 +260,7 @@ function enforceHourLimits(rawAsgn, staff, weeks, slots){
         const dk=tdk(d), dow=d.getDay();
         (slots[dow]||[]).forEach(slot=>{
           if((na[dk]?.[slot.id]||[]).includes(s.id)){
-            assigned.push({dk, dow, slotId:slot.id, h:slotHours(dow,slot.id,slots)});
+            assigned.push({dk, dow, slotId:slot.id, h:slotHours(dow,slot.id,slots), pin:pinned.has(dk+'|'+slot.id+'|'+s.id)});
           }
         });
       });
@@ -278,11 +279,16 @@ function enforceHourLimits(rawAsgn, staff, weeks, slots){
 
       const kept=new Set();
       let accumulated=0;
+      // ① ベースシフト（pinned）は無条件で残す（金土が削られないように）
+      assigned.forEach(a=>{
+        if(a.pin){kept.add(a.dk+'|'+a.slotId);accumulated+=a.h;}
+      });
+      // ② 残り（非ベース）を曜日ラウンドロビンで上限まで残す
       let changed=true;
       while(changed){
         changed=false;
         for(const dow of days){
-          const notYet=byDay[dow].filter(a=>!kept.has(a.dk+'|'+a.slotId));
+          const notYet=byDay[dow].filter(a=>!a.pin&&!kept.has(a.dk+'|'+a.slotId));
           if(notYet.length===0) continue;
           const next=notYet[0];
           if(accumulated+next.h<=maxH){
@@ -2227,6 +2233,58 @@ ${bodyHtml}
     return na;
   }
 
+  // ── ベースシフトを当月の全開院日に展開（土台）。手動除外は尊重 ──
+  function buildBaseAsgn(){
+    const base={};
+    dates.forEach(d=>{
+      const dk=tdk(d);
+      if(isClosedDay(dk))return;
+      const dow=d.getDay();
+      const pattern=getABPatternForDate(d);
+      const baseForDay=(baseShift[pattern]||{})[dow]||{};
+      Object.entries(baseForDay).forEach(([slotId,ids])=>{
+        const valid=(ids||[]).filter(sid=>staff.some(s=>s.id===sid)&&!(manualExclusions[dk]?.[slotId]||[]).includes(sid));
+        if(valid.length===0)return;
+        if(!base[dk])base[dk]={};
+        base[dk][slotId]=[...valid];
+      });
+    });
+    return base;
+  }
+  // ベースシフト配置を「絶対に削らない」ためのpinnedセットを作る
+  function pinnedFromBase(base){
+    const set=new Set();
+    Object.entries(base).forEach(([dk,sm])=>Object.entries(sm).forEach(([slotId,ids])=>(ids||[]).forEach(sid=>set.add(dk+'|'+slotId+'|'+sid))));
+    return set;
+  }
+  // src を target に加算マージ（重複なし）
+  function mergeAsgnInto(target,src){
+    Object.entries(src||{}).forEach(([dk,sm])=>{
+      if(!target[dk])target[dk]={};
+      Object.entries(sm).forEach(([slotId,ids])=>{
+        const cur=target[dk][slotId]||[];
+        const merged=[...cur];
+        (ids||[]).forEach(sid=>{if(!merged.includes(sid))merged.push(sid);});
+        target[dk][slotId]=merged;
+      });
+    });
+    return target;
+  }
+  // ── 最終仕上げ：①ベースシフトを土台に配置 → ②AI結果を重ねる →
+  //   ③労働時間調整（ベース分は削らない） → ④常勤最低時間/最低コマ補完 → ⑤ベース被覆の最終保証 ──
+  function finalizeAsgn(aiAsgn){
+    const base=buildBaseAsgn();
+    const pinned=pinnedFromBase(base);
+    let na={};
+    mergeAsgnInto(na,base);      // ① ベースシフトを土台に
+    mergeAsgnInto(na,aiAsgn||{});// ② AI結果を上乗せ
+    na=enforceHourLimits(na,staff,weeks,slots,pinned); // ③ ベースは保護
+    na=fillFulltimeMinHours(na); // ④
+    na=ensureMinSlots(na);       // ④
+    na=ensureBaseCoverage(na);   // ⑤ 念のための最終保証
+    return na;
+  }
+
   // ── ベースシフトのコマ被覆を保証（時間調整で消えた金土などを最後に復活）──
   // 労働時間調整(enforceHourLimits)が週後半の枠を削って金・土が空になるのを防ぐため、
   // ベースシフトで指定されたスタッフを各開院日のコマに必ず再充当する。
@@ -2290,7 +2348,7 @@ ${bodyHtml}
           na[dk][slotId]=merged;
         });
       });
-      setAsgn(ensureBaseCoverage(ensureMinSlots(fillFulltimeMinHours(enforceHourLimits(na,staff,weeks,slots)))));
+      setAsgn(finalizeAsgn(na));
       setApid(pat.id);
       setManualExclusions({});
     } else {
@@ -2301,7 +2359,7 @@ ${bodyHtml}
           na[dk][s2]=(Array.isArray(sids)?sids:[]).filter(sid=>staff.some(s=>s.id===sid));
         });
       });
-      setAsgn(ensureBaseCoverage(ensureMinSlots(fillFulltimeMinHours(enforceHourLimits(na,staff,weeks,slots)))));
+      setAsgn(finalizeAsgn(na));
       setApid(pat.id);
     }
   }
@@ -2922,7 +2980,7 @@ ${bodyHtml}
 
           {showHoursPanel&&<HoursPanel staff={staff} weeks={weeks} dates={dates} asgn={asgn} manualExclusions={manualExclusions} slots={slots} onClose={()=>setShowHoursPanel(false)} onAutoFill={autoFillHours}/>}
           {showReportPanel&&<ReportPanel reports={generateReport()} y={y} m={m} onClose={()=>setShowReportPanel(false)} onExportPDF={exportReportPDF}/>}
-          {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
+          {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} finalizeAsgn={finalizeAsgn} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
 
           {/* legend */}
           <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
@@ -4593,7 +4651,7 @@ function HoursPanel({staff,weeks,dates,asgn,manualExclusions,slots,onClose,onAut
 }
 
 // ================================================================
-function AutoPanel({result,apid,staff,y,m,allSlots,weeks,slots,patReqList,onApply,onClose,onJump}){
+function AutoPanel({result,apid,staff,y,m,allSlots,weeks,slots,patReqList,finalizeAsgn,onApply,onClose,onJump}){
   const [at,setAt]=useState('patterns');
   const pats=result.patterns||[],gaps=result.gaps||[];
   const st=(k)=>({padding:'8px 14px',border:'none',background:'none',cursor:'pointer',fontSize:12,fontWeight:at===k?500:400,color:at===k?K.textI:K.textS,borderBottom:at===k?'2px solid '+K.textI:'2px solid transparent'});
@@ -4612,14 +4670,14 @@ function AutoPanel({result,apid,staff,y,m,allSlots,weeks,slots,patReqList,onAppl
         <button onClick={()=>setAt('gaps')} style={st('gaps')}>ギャップ提案{gaps.length>0&&<span style={{marginLeft:5,fontSize:10,background:K.bgW,color:K.textW,borderRadius:10,padding:'1px 5px'}}>{gaps.length}</span>}</button>
       </div>
       <div style={{padding:14}}>
-        {at==='patterns'&&(pats.length===0?<p style={{fontSize:13,color:K.textS}}>パターンを生成できませんでした。</p>:<div style={{display:'flex',gap:12,flexWrap:'wrap'}}>{pats.map(p=><PatCard key={p.id} p={p} isOn={apid===p.id} staff={staff} weeks={weeks} slots={slots} y={y} patReqList={patReqList} onApply={()=>onApply(p)}/>)}</div>)}
+        {at==='patterns'&&(pats.length===0?<p style={{fontSize:13,color:K.textS}}>パターンを生成できませんでした。</p>:<div style={{display:'flex',gap:12,flexWrap:'wrap'}}>{pats.map(p=><PatCard key={p.id} p={p} isOn={apid===p.id} staff={staff} weeks={weeks} slots={slots} y={y} patReqList={patReqList} finalizeAsgn={finalizeAsgn} onApply={()=>onApply(p)}/>)}</div>)}
         {at==='gaps'&&(gaps.length===0?<div style={{padding:'24px 0',textAlign:'center',color:K.textS,fontSize:13}}>全コマを条件内で埋めることができました。</div>:<GapSec gaps={gaps} staff={staff} m={m} y={y} allSlots={allSlots} onJump={onJump}/>)}
       </div>
     </div>
   );
 }
 
-function PatCard({p,isOn,staff,weeks,slots,y,patReqList,onApply}){
+function PatCard({p,isOn,staff,weeks,slots,y,patReqList,finalizeAsgn,onApply}){
   // p.assign のキーは "MM-DD" 形式 → "YYYY-MM-DD" 形式に変換してから制約適用
   const convertedAsgn={};
   Object.entries(p.assign||{}).forEach(([mmdd,sls])=>{
@@ -4630,7 +4688,9 @@ function PatCard({p,isOn,staff,weeks,slots,y,patReqList,onApply}){
     });
   });
 
-  const enforcedAsgn=weeks&&slots?enforceHourLimits(convertedAsgn,staff,weeks,slots):convertedAsgn;
+  // 実際に適用されるのと同じ手順（ベースシフト土台＋AI＋時間調整＋補完）で集計する。
+  // finalizeAsgn が無い場合のみ従来の時間調整のみにフォールバック。
+  const enforcedAsgn=finalizeAsgn?finalizeAsgn(convertedAsgn):(weeks&&slots?enforceHourLimits(convertedAsgn,staff,weeks,slots):convertedAsgn);
 
   const cnt={};staff.forEach(s=>{cnt[s.id]=0;});
   Object.values(enforcedAsgn).forEach(ds=>{Object.values(ds).forEach(ids=>{(Array.isArray(ids)?ids:[]).forEach(sid=>{cnt[sid]=(cnt[sid]||0)+1;});});});
