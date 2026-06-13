@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v31</title>
+<title>シフト管理 v32</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v31';
+const APP_VERSION = 'v32';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -677,38 +677,66 @@ const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 // ================================================================
 
 // Supabaseクライアント（軽量版）
+// ── 合言葉ログイン（Supabase Auth）──
+// 共有ログイン用メール（秘密ではない）。鍵になるのは合言葉=パスワード。
+const SUPABASE_LOGIN_EMAIL='shift-app@fukumimi.local';
+const PASS_KEY='fukumimi_pass';        // 端末に覚えさせる合言葉
+let SB_ACCESS_TOKEN='';                 // ログイン後のアクセストークン
+function sbBearer(){ return 'Bearer '+(SB_ACCESS_TOKEN||SUPABASE_KEY); }
+async function sbReauth(){
+  try{ const p=localStorage.getItem(PASS_KEY)||''; if(!p)return false; const r=await SB.signIn(p); return r.ok; }catch(e){return false;}
+}
 const SB={
-  async get(table){
+  async signIn(password){
     try{
-      const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main&select=data`,{
-        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      const r=await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`,{
+        method:'POST',
+        headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},
+        body:JSON.stringify({email:SUPABASE_LOGIN_EMAIL,password})
       });
-      if(!r.ok)return null;
-      const d=await r.json();
-      return d[0]?.data||null;
-    }catch(e){console.error('SB.get error:',e);return null;}
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.access_token)return {ok:false,error:(d.error_description||d.msg||d.error||('認証エラー('+r.status+')'))};
+      SB_ACCESS_TOKEN=d.access_token;
+      return {ok:true};
+    }catch(e){return {ok:false,error:'通信に失敗しました'};}
+  },
+  signOut(){ SB_ACCESS_TOKEN=''; try{localStorage.removeItem(PASS_KEY);}catch(e){} },
+  async get(table){
+    for(let a=0;a<2;a++){
+      try{
+        const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main&select=data`,{headers:{'apikey':SUPABASE_KEY,'Authorization':sbBearer()}});
+        if(r.status===401&&a===0&&await sbReauth())continue;
+        if(!r.ok)return null;
+        const d=await r.json(); return d[0]?.data||null;
+      }catch(e){return null;}
+    }
+    return null;
   },
   // ok=クラウドに到達できたか（empty と 通信失敗 を区別する）
   async getSafe(table){
-    try{
-      const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main&select=data`,{
-        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
-      });
-      if(!r.ok)return {ok:false,data:null};
-      const d=await r.json();
-      return {ok:true,data:d[0]?.data||null};
-    }catch(e){console.error('SB.getSafe error:',e);return {ok:false,data:null};}
+    for(let a=0;a<2;a++){
+      try{
+        const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main&select=data`,{headers:{'apikey':SUPABASE_KEY,'Authorization':sbBearer()}});
+        if(r.status===401&&a===0&&await sbReauth())continue;
+        if(!r.ok)return {ok:false,data:null};
+        const d=await r.json(); return {ok:true,data:d[0]?.data||null};
+      }catch(e){return {ok:false,data:null};}
+    }
+    return {ok:false,data:null};
   },
   async set(table,data){
-    try{
-      const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main`,{
-        method:'PATCH',
-        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,
-          'Content-Type':'application/json','Prefer':'return=minimal'},
-        body:JSON.stringify({data,updated_at:new Date().toISOString()})
-      });
-      return r.ok;
-    }catch(e){console.error('SB.set error:',e);return false;}
+    for(let a=0;a<2;a++){
+      try{
+        const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.main`,{
+          method:'PATCH',
+          headers:{'apikey':SUPABASE_KEY,'Authorization':sbBearer(),'Content-Type':'application/json','Prefer':'return=minimal'},
+          body:JSON.stringify({data,updated_at:new Date().toISOString()})
+        });
+        if(r.status===401&&a===0&&await sbReauth())continue;
+        return r.ok;
+      }catch(e){return false;}
+    }
+    return false;
   }
 };
 const SB_ENABLED=SUPABASE_URL!=='YOUR_SUPABASE_URL';
@@ -936,6 +964,28 @@ function App(){
   const [sbStatus,setSbStatus]=useState(''); // ''|'ok'|'error'
   // クラウド読み込みが成功するまで自動保存を止める安全装置（古いデータでクラウドを上書きしないため）
   const sbReadyRef=React.useRef(false);
+  // ── 合言葉ログイン ──
+  const [authStatus,setAuthStatus]=useState(()=>SB_ENABLED?'checking':'authed'); // 'checking'|'need'|'authed'
+  const [authPassInput,setAuthPassInput]=useState('');
+  const [authErr,setAuthErr]=useState('');
+  const [authBusy,setAuthBusy]=useState(false);
+  React.useEffect(()=>{
+    if(!SB_ENABLED){setAuthStatus('authed');return;}
+    (async()=>{
+      let p='';try{p=localStorage.getItem(PASS_KEY)||'';}catch(e){}
+      if(p){const r=await SB.signIn(p);setAuthStatus(r.ok?'authed':'need');}
+      else setAuthStatus('need');
+    })();
+  // eslint-disable-next-line
+  },[]);
+  async function submitPassphrase(){
+    if(!authPassInput.trim())return;
+    setAuthBusy(true);setAuthErr('');
+    const r=await SB.signIn(authPassInput.trim());
+    if(r.ok){try{localStorage.setItem(PASS_KEY,authPassInput.trim());}catch(e){}setAuthStatus('authed');setAuthPassInput('');}
+    else setAuthErr(r.error||'合言葉が違うか、まだ設定が完了していません。');
+    setAuthBusy(false);
+  }
 
   // Supabaseからデータ読み込み（管理者モード起動時）
   React.useEffect(()=>{
@@ -2841,6 +2891,39 @@ ${bodyHtml}
       return{...prev,[dk]:day};
     });
     alert('管理者に報告しました。ありがとうございます。');
+  }
+
+  // ── 合言葉ログイン画面（クラウドに鍵がかかっている場合）──
+  if(SB_ENABLED && authStatus!=='authed'){
+    return(
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#EBF4FF 0%,#F0FDF4 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+        <div style={{background:'#fff',borderRadius:20,padding:32,width:'100%',maxWidth:360,boxShadow:'0 8px 32px rgba(0,0,0,0.10)',textAlign:'center'}}>
+          <div style={{fontSize:34,marginBottom:8}}>🔒</div>
+          <div style={{fontWeight:700,fontSize:18,color:'#1E293B',marginBottom:2}}>医療法人 福耳会</div>
+          <div style={{fontSize:13,color:'#64748B',marginBottom:20}}>シフト管理システム</div>
+          {authStatus==='checking'?(
+            <div style={{fontSize:13,color:'#64748B',padding:'20px 0'}}>🔄 確認中…</div>
+          ):(
+            <>
+              <div style={{fontSize:13,color:'#334155',marginBottom:12,lineHeight:1.6}}>この職場の<strong>合言葉</strong>を入力してください。<br/>（最初の一度だけ。次回からは自動で開きます）</div>
+              <input type="password" value={authPassInput} autoFocus
+                onChange={e=>{setAuthErr('');setAuthPassInput(e.target.value);}}
+                onKeyDown={e=>{if(e.key==='Enter')submitPassphrase();}}
+                placeholder="合言葉"
+                style={{width:'100%',padding:'12px',border:'1.5px solid '+(authErr?'#EF4444':'#CBD5E1'),borderRadius:10,fontSize:16,textAlign:'center',marginBottom:8,boxSizing:'border-box'}}/>
+              {authErr&&<div style={{fontSize:12,color:'#991B1B',marginBottom:8}}>{authErr}</div>}
+              <button onClick={submitPassphrase} disabled={authBusy||!authPassInput.trim()}
+                style={{width:'100%',padding:'12px',border:'none',borderRadius:10,background:(authBusy||!authPassInput.trim())?'#CBD5E1':'#185FA5',color:'#fff',cursor:(authBusy||!authPassInput.trim())?'not-allowed':'pointer',fontSize:16,fontWeight:700}}>
+                {authBusy?'確認中…':'ログイン'}
+              </button>
+              <div style={{marginTop:14,paddingTop:12,borderTop:'1px solid #F1F5F9'}}>
+                <button onClick={()=>setAuthStatus('authed')} style={{border:'none',background:'none',color:'#94A3B8',fontSize:11,cursor:'pointer',textDecoration:'underline'}}>セットアップ前のため合言葉なしで続ける</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
 
   // ── モード選択画面 ──
