@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v30</title>
+<title>シフト管理 v31</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v30';
+const APP_VERSION = 'v31';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -967,6 +967,7 @@ function App(){
           if(sd.newSlotCounter)setNewSlotCounter(sd.newSlotCounter);
           shiftStampLoadRef.current=true; // 読込では作成日時を更新しない
           if(sd.shiftUpdatedAt!==undefined){setShiftUpdatedAt(sd.shiftUpdatedAt||'');setPublishedAt(sd.shiftUpdatedAt||'');}
+          if(Array.isArray(sd.history))setShiftHistory(sd.history); // バックアップ履歴
           if(sd.y)setY(sd.y);if(sd.m)setM(sd.m);
         }
         // 手元が新しい場合は、その手元の版を「未公開」として扱う（クラウドより新しい）
@@ -1210,6 +1211,9 @@ function App(){
   const [publishing,setPublishing]=useState(false);
   const [publishedAt,setPublishedAt]=useState(()=>saved?.shiftUpdatedAt||''); // 公開済みとみなす版
   const hasUnpublished = !!shiftUpdatedAt && shiftUpdatedAt!==publishedAt;
+  const HISTORY_MAX=10; // クラウドに残す過去の公開版の数
+  const [shiftHistory,setShiftHistory]=useState([]); // [{at,made,data}]（クラウドから取得）
+  const [showHistory,setShowHistory]=useState(false);
   async function publishToCloud(){
     if(!SB_ENABLED){alert('クラウドが設定されていません。');return;}
     setPublishing(true);
@@ -1217,16 +1221,44 @@ function App(){
       // 競合チェック：クラウドにこれより新しい版があれば確認
       const cloud=await SB.getSafe('shift_data');
       if(!cloud.ok){alert('クラウドに接続できませんでした。通信状況をご確認ください。');setPublishing(false);return;}
-      const cloudTs=(cloud.data&&cloud.data.shiftUpdatedAt)||'';
+      const prev=cloud.data;
+      const cloudTs=(prev&&prev.shiftUpdatedAt)||'';
       if(cloudTs && shiftUpdatedAt && cloudTs>shiftUpdatedAt){
         if(!window.confirm('クラウドには、これより新しいシフト（'+fmtStamp(cloudTs)+'）が保存されています。\n他の端末で更新された可能性があります。上書きして公開しますか？')){setPublishing(false);return;}
       }
-      const data={y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,shiftUpdatedAt};
+      // 直前の公開版を履歴に自動退避（最大HISTORY_MAX件）
+      let hist=(prev&&Array.isArray(prev.history))?prev.history:[];
+      if(prev&&Object.keys(prev).length>0){
+        const prevNoHist=Object.assign({},prev); delete prevNoHist.history;
+        hist=[{at:new Date().toISOString(),made:prev.shiftUpdatedAt||'',data:prevNoHist},...hist].slice(0,HISTORY_MAX);
+      }
+      const data={y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,shiftUpdatedAt,history:hist};
       const ok=await SB.set('shift_data',data);
-      if(ok){setPublishedAt(shiftUpdatedAt);alert('クラウドに保存し、スタッフへ公開しました。\n（作成: '+fmtStamp(shiftUpdatedAt)+'）');}
+      if(ok){setPublishedAt(shiftUpdatedAt);setShiftHistory(hist);alert('クラウドに保存し、スタッフへ公開しました。\n（作成: '+fmtStamp(shiftUpdatedAt)+'）\n直前の版はバックアップ履歴に自動保存されました。');}
       else alert('保存に失敗しました。もう一度お試しください。');
     }catch(e){alert('保存に失敗しました：'+(e&&e.message||e));}
     setPublishing(false);
+  }
+  // 履歴の版に戻す（戻したあと「保存／公開」で確定）
+  function restoreSnapshot(snap){
+    if(!snap||!snap.data)return;
+    if(!window.confirm('この版（作成 '+fmtStamp(snap.made||snap.at)+'）に戻しますか？\n現在の編集内容は置き換わります。戻したあと「保存／公開」で確定してください。'))return;
+    const d=snap.data;
+    if(d.staff)setStaff(d.staff);
+    if(d.slots)setSlots(d.slots);
+    if(d.asgn)setAsgn(d.asgn);
+    if(d.tmps)setTmps(d.tmps);
+    if(d.weeklyReq)setWeeklyReq(d.weeklyReq);
+    if(d.monthlyReq)setMonthlyReq(d.monthlyReq);
+    if(d.manualExclusions)setManualExclusions(d.manualExclusions);
+    if(d.manualClosedDays)setManualClosedDays(d.manualClosedDays);
+    if(d.baseShift)setBaseShift(d.baseShift);
+    if(d.paidLeave)setPaidLeave(d.paidLeave);
+    if(d.newSlotCounter)setNewSlotCounter(d.newSlotCounter);
+    if(d.y)setY(d.y);if(d.m)setM(d.m);
+    setShiftUpdatedAt(new Date().toISOString()); // 復元＝新しい未公開版
+    setShowHistory(false);
+    setTimeout(()=>alert('復元しました。内容を確認して「保存／公開」で確定してください。'),50);
   }
 
   // Supabase自動保存（requests）※shift_dataとは別タイマーで保存（互いに上書きしないように）
@@ -3338,6 +3370,12 @@ ${bodyHtml}
                   {publishing?'保存中…':hasUnpublished?'☁ 保存／公開（未公開あり）':'☁ 保存／公開（公開済み）'}
                 </button>
               )}
+              {SB_ENABLED&&(
+                <button onClick={()=>setShowHistory(true)} title="過去の公開版に戻せます"
+                  style={{padding:'5px 10px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',border:'1px solid #CBD5E1',background:'#fff',color:'#334155'}}>
+                  🕘 履歴{shiftHistory.length>0?'('+shiftHistory.length+')':''}
+                </button>
+              )}
               <button onClick={applyOvertimeRelief} title="①余剰枠→不足枠へ配置を均す ②8時間超の人を末尾コマから外し空いた枠を延長で補う"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（偏り・超過）</button>
               {preReliefAsgn!=null&&(
@@ -3411,6 +3449,38 @@ ${bodyHtml}
           {showHoursPanel&&<HoursPanel staff={staff} weeks={weeks} dates={dates} asgn={asgn} manualExclusions={manualExclusions} slots={slots} onClose={()=>setShowHoursPanel(false)} onAutoFill={autoFillHours}/>}
           {showReportPanel&&<ReportPanel reports={generateReport()} y={y} m={m} onClose={()=>setShowReportPanel(false)} onExportPDF={exportReportPDF}/>}
           {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} finalizeAsgn={finalizeAsgn} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
+
+          {/* バックアップ履歴パネル */}
+          {showHistory&&(
+            <div onClick={()=>setShowHistory(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2000,padding:16}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:14,width:'100%',maxWidth:460,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 18px',borderBottom:K.bd}}>
+                  <div style={{fontWeight:600,fontSize:15}}>🕘 バックアップ履歴</div>
+                  <button onClick={()=>setShowHistory(false)} style={{border:'none',background:'none',cursor:'pointer',fontSize:20,color:K.textS,lineHeight:1,padding:0}}>×</button>
+                </div>
+                <div style={{padding:'10px 18px',fontSize:12,color:K.textS,borderBottom:K.bd,lineHeight:1.6}}>
+                  「保存／公開」するたびに、直前の版が自動で保存されます（最大{HISTORY_MAX}件）。戻したい版の「この版に戻す」を押し、内容を確認してから「保存／公開」で確定してください。
+                </div>
+                <div style={{overflowY:'auto',padding:'10px 18px',display:'flex',flexDirection:'column',gap:8}}>
+                  {shiftHistory.length===0?(
+                    <div style={{fontSize:13,color:K.textS,padding:'16px 0',textAlign:'center'}}>まだ履歴はありません。<br/>一度「保存／公開」すると、次回からここに残ります。</div>
+                  ):shiftHistory.map((h,i)=>{
+                    const dd=h.data||{};
+                    const days=Object.values(dd.asgn||{}).filter(day=>Object.values(day||{}).some(ids=>(ids||[]).length>0)).length;
+                    return(
+                      <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',border:K.bd,borderRadius:K.rmd,background:K.bgS}}>
+                        <div style={{flex:1,lineHeight:1.5}}>
+                          <div style={{fontSize:13,fontWeight:600,color:K.text}}>作成: {fmtStamp(h.made)||'—'}</div>
+                          <div style={{fontSize:11,color:K.textS}}>退避: {fmtStamp(h.at)}　/　{dd.y}年{dd.m}月　配置のある日 {days}日</div>
+                        </div>
+                        <button onClick={()=>restoreSnapshot(h)} style={{padding:'5px 12px',border:'1px solid #185FA5',borderRadius:K.rmd,background:'#EBF4FF',color:'#185FA5',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}}>この版に戻す</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 超過勤務 自動調整の変更点 */}
           {reliefChanges.length>0&&(
