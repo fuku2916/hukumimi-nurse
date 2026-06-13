@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v22</title>
+<title>シフト管理 v23</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v22';
+const APP_VERSION = 'v23';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -111,6 +111,21 @@ function leaveNoteForSlot(notes,slot){
   // コマの開始より後・終了より前に退勤する場合のみ表示
   if(r.e>lim && (r.s==null || r.s<lim)) return '(帰'+fmtHM(lim)+')';
   return '';
+}
+
+// 印刷用ウインドウに「🖨 印刷」ボタンを差し込む（自動印刷はせず、押したときだけ印刷）
+function injectPrintButton(printWin){
+  try{
+    const st=printWin.document.createElement('style');
+    st.textContent='@media print{.__noprint{display:none!important}}';
+    printWin.document.head.appendChild(st);
+    const btn=printWin.document.createElement('button');
+    btn.textContent='🖨 印刷';
+    btn.className='__noprint';
+    btn.setAttribute('style','position:fixed;top:10px;right:10px;z-index:99999;padding:10px 16px;font-size:15px;font-weight:700;background:#185FA5;color:#fff;border:none;border-radius:10px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)');
+    btn.onclick=function(){printWin.print();};
+    printWin.document.body.appendChild(btn);
+  }catch(e){}
 }
 
 function getSlotColor(slot){
@@ -1429,7 +1444,7 @@ td.sat{background:#FFFBEB}
 <div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
 <table><thead><tr><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr></thead><tbody>${calHtml}</tbody></table>
 </body></html>`);
-    printWin.document.close();setTimeout(()=>printWin.print(),700);
+    printWin.document.close();injectPrintButton(printWin);
   }
 
   // ── 個人別シフト表PDF ──
@@ -1515,7 +1530,7 @@ td.cell-off{background:#fff}
 <div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
 <table><thead><tr><th class="name-h">スタッフ</th>${thHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
 </body></html>`);
-    printWin.document.close();setTimeout(()=>printWin.print(),800);
+    printWin.document.close();injectPrintButton(printWin);
   }
 
   // ── 達成レポート生成（機械チェック） ──
@@ -1729,7 +1744,7 @@ h1{font-size:16pt;font-weight:700;margin-bottom:3mm}
 <div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
 ${bodyHtml}
 </body></html>`);
-    printWin.document.close();setTimeout(()=>printWin.print(),700);
+    printWin.document.close();injectPrintButton(printWin);
   }
 
   // ── 年の最初の月曜日からの通算週番号でA/Bパターンを判定 ──
