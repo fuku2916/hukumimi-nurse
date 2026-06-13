@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v36</title>
+<title>シフト管理 v37</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v36';
+const APP_VERSION = 'v37';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2804,10 +2804,10 @@ ${bodyHtml}
       const tc=tmps[dk]?.[String(sid)];
       return !!(tc&&['off','paid','paid_am','paid_pm'].includes(tc.type));
     };
-    const isBasePinned=(d,slotId,sid)=>{
-      const pat=getABPatternForDate(d), dow=d.getDay();
-      return (((baseShift[pat]||{})[dow]||{})[slotId]||[]).includes(sid);
-    };
+    // ベースシフトは「その日に誰が働くか・各人の勤務時間」を固定する意味。
+    // 入れ替え(swap)は同種コマ間で2人を交換するだけなので、出勤者と勤務時間は不変。
+    // 座る外来コマが午前⇄昼⇄夜で入れ替わるだけなので、ベース固定とは矛盾しない。
+    // → ベース登録の有無で入れ替えを禁止しない（type一致とcanCoverSlotでスキルは担保）。
     const OT=100; // 残業1hあたりのペナルティ（残業を作る入れ替えは必ずコスト増→不採用に）
     const personCost=(dk,sid,state)=>{
       const h=dayHours(dk,sid,state,manualExclusions,slots,staff);
@@ -2829,12 +2829,10 @@ ${bodyHtml}
             const aIds=(na[dk][A.id]||[]).filter(sid=>!isOffOrExcl(dk,A.id,sid));
             const bIds=(na[dk][B.id]||[]).filter(sid=>!isOffOrExcl(dk,B.id,sid));
             for(const x of aIds){
-              if(isBasePinned(d,A.id,x))continue;          // ベース固定は外さない
               if((na[dk][B.id]||[]).includes(x))continue;   // 既にBにいる
               const sx=staff.find(s=>s.id===x); if(!sx||!canCoverSlot(sx,B,dow))continue;
               for(const y of bIds){
                 if(y===x)continue;
-                if(isBasePinned(d,B.id,y))continue;
                 if((na[dk][A.id]||[]).includes(y))continue;
                 const sy=staff.find(s=>s.id===y); if(!sy||!canCoverSlot(sy,A,dow))continue;
                 // x↔y の交換を試算
@@ -3678,7 +3676,7 @@ ${bodyHtml}
               )}
               <button onClick={applyOvertimeRelief} title="①余剰枠→不足枠へ配置を均す ②8時間超の人を末尾コマから外し空いた枠を延長で補う"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（偏り・超過）</button>
-              <button onClick={applySpanCompaction} title="同じ人に時間が離れたコマ（午前＋夜など）が割り当たって拘束時間が伸びている所を、2人のコマを入れ替えて勤務が連続するよう短縮します。ベースシフトの駒・有給・希望休・除外した駒は動かしません。変更点はプレビュー表示され、元に戻せます。"
+              <button onClick={applySpanCompaction} title="同じ人に時間が離れたコマ（午前＋夜など）が割り当たって拘束時間が伸びている所を、同種コマ間で2人を入れ替えて勤務が連続するよう短縮します。出勤者と各人の勤務時間は変わりません（座る外来コマが入れ替わるだけ）。有給・希望休・除外した駒は動かしません。変更点はプレビュー表示され、元に戻せます。"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #2563EB',background:'#EFF6FF',color:'#1E40AF',whiteSpace:'nowrap'}}>⏱ 拘束時間を最適化</button>
               {preReliefAsgn!=null&&(
                 <button onClick={undoOvertimeRelief} title="自動調整を取り消して調整前に戻します"
