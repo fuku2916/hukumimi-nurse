@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v11</title>
+<title>シフト管理 v12</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v12';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -925,6 +925,16 @@ function App(){
   const [adminPinInput,setAdminPinInput]=useState('');
   const [adminPinErr,setAdminPinErr]=useState('');
   const [showAdminPinSetting,setShowAdminPinSetting]=useState(false);
+  // 隠し入口：スタッフには管理者の入口を見せない。ロゴを5回タップで管理PIN欄を表示
+  const [showAdminEntry,setShowAdminEntry]=useState(false);
+  const adminTapRef=React.useRef({count:0,timer:null});
+  function onSecretAdminTap(){
+    const s=adminTapRef.current;
+    if(s.timer)clearTimeout(s.timer);
+    s.count++;
+    if(s.count>=5){s.count=0;setShowAdminEntry(true);return;}
+    s.timer=setTimeout(()=>{s.count=0;},1500); // 1.5秒以内に5回タップ
+  }
   const [openMenu,setOpenMenu]=useState(null); // 'file'|'settings'|'design'|'output'|null
   // ── スタッフモード用 state ──
   const [staffMyId,setStaffMyId]=useState(null);
@@ -2467,11 +2477,13 @@ ${bodyHtml}
     return(
       <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#EBF4FF 0%,#F0FDF4 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
         <div style={{background:'#fff',borderRadius:20,padding:32,width:'100%',maxWidth:380,boxShadow:'0 8px 32px rgba(0,0,0,0.10)',textAlign:'center'}}>
-          <div style={{fontSize:36,marginBottom:10}}>🏥</div>
+          {/* ロゴを5回タップすると管理者の入口が出る（スタッフには見えない隠し入口） */}
+          <div onClick={onSecretAdminTap} style={{fontSize:36,marginBottom:10,cursor:'default',userSelect:'none'}}>🏥</div>
           <div style={{fontWeight:700,fontSize:20,color:'#1E293B',marginBottom:3}}>医療法人 福耳会</div>
           <div style={{fontSize:13,color:'#64748B',marginBottom:28}}>シフト管理システム <span style={{fontSize:11,color:'#94A3B8',marginLeft:4}}>{APP_VERSION}</span></div>
 
-          {/* 管理者モード PIN入力 */}
+          {/* 管理者モード PIN入力（隠し入口：showAdminEntryのときだけ表示） */}
+          {showAdminEntry&&(
           <div style={{marginBottom:12,border:'2px solid #185FA5',borderRadius:14,overflow:'hidden'}}>
             <div style={{padding:'14px 20px',background:'#EBF4FF',display:'flex',alignItems:'center',gap:10}}>
               <span style={{fontSize:22}}>🗂️</span>
@@ -2519,8 +2531,9 @@ ${bodyHtml}
               )}
             </div>
           </div>
+          )}
 
-          {/* スタッフモード */}
+          {/* スタッフモード（通常はこれだけが表示される入口） */}
           <button onClick={()=>setAppMode('staff_login')}
             style={{width:'100%',padding:'18px 20px',border:'2px solid #7C3AED',borderRadius:14,background:'#F5F3FF',color:'#7C3AED',cursor:'pointer',fontSize:15,fontWeight:700,display:'flex',alignItems:'center',gap:12,textAlign:'left'}}>
             <span style={{fontSize:22}}>👤</span>
