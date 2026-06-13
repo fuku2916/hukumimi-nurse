@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v14</title>
+<title>シフト管理 v15</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2841,6 +2841,7 @@ ${bodyHtml}
                     <MenuDivider/>
                     <MenuLabel text="シフトパターン"/>
                     <MenuItem icon="📅" label="ベースシフト" onClick={()=>{setTab('base');setOpenMenu(null);}} active={tab==='base'}/>
+                    <MenuItem icon="🌸" label="申請・ミス報告" onClick={()=>{setTab('paid');setOpenMenu(null);}} active={tab==='paid'}/>
 
                     <MenuDivider/>
                     <MenuLabel text="認証"/>
@@ -2894,6 +2895,7 @@ ${bodyHtml}
               <MenuItem icon="🏥" label="診療枠" onClick={()=>{setTab('ref');setOpenMenu(null);}} active={tab==='ref'}/>
               <MenuItem icon="📊" label="必要人数" onClick={()=>{setTab('req');setOpenMenu(null);}} active={tab==='req'}/>
               <MenuItem icon="📅" label="ベースシフト" onClick={()=>{setTab('base');setOpenMenu(null);}} active={tab==='base'}/>
+              <MenuItem icon="🌸" label="申請・ミス報告" onClick={()=>{setTab('paid');setOpenMenu(null);}} active={tab==='paid'}/>
               <MenuItem icon="🔑" label={apiKey?'APIキー設定済':'APIキー未設定'} onClick={()=>{setShowKeyPanel(p=>!p);setOpenMenu(null);}}/>
               <MenuItem icon="🔐" label="管理者PIN変更" onClick={()=>{setShowAdminPinSetting(p=>!p);setOpenMenu(null);}}/>
               <MenuDivider/>
