@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v33</title>
+<title>シフト管理 v34</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v33';
+const APP_VERSION = 'v34';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -112,28 +112,41 @@ function slotRangeMin(slot){
   return {s:sm?parseInt(sm[1])*60+parseInt(sm[2]):null, e:em?parseInt(em[1])*60+parseInt(em[2]):null};
 }
 function fmtHM(m){return Math.floor(m/60)+':'+(m%60<10?'0':'')+(m%60);}
-// そのスタッフがそのコマで早退するなら「(帰H:MM)」を返す（早退しないなら空文字）
-function leaveNoteForSlot(notes,slot){
-  var lim=staffLeaveLimitMin(notes); if(lim==null)return '';
+function hmToMin(x){if(x==null||x==='')return null;var m=(''+x).match(/(\d{1,2}):(\d{2})/);return m?parseInt(m[1])*60+parseInt(m[2]):null;}
+// 曜日別の退勤/出勤の制限（分）。cond.dayTimes[dow] → cond.end/start（全曜日共通）→ 旧notes解析 の順で参照
+function staffEndMin(s,dow){
+  if(!s)return null; var c=s.cond;
+  if(c&&c.dayTimes&&c.dayTimes[dow]&&c.dayTimes[dow].e)return hmToMin(c.dayTimes[dow].e);
+  if(c&&c.end)return hmToMin(c.end);
+  return staffLeaveLimitMin(s.notes);
+}
+function staffStartMin(s,dow){
+  if(!s)return null; var c=s.cond;
+  if(c&&c.dayTimes&&c.dayTimes[dow]&&c.dayTimes[dow].s)return hmToMin(c.dayTimes[dow].s);
+  if(c&&c.start)return hmToMin(c.start);
+  return staffStartLimitMin(s.notes);
+}
+// そのスタッフがそのコマ(その曜日)で早退するなら「(帰H:MM)」を返す
+function leaveNoteForSlot(s,slot,dow){
+  var lim=staffEndMin(s,dow); if(lim==null)return '';
   var r=slotRangeMin(slot); if(!r||r.e==null)return '';
-  // コマの開始より後・終了より前に退勤する場合のみ表示
   if(r.e>lim && (r.s==null || r.s<lim)) return '(帰'+fmtHM(lim)+')';
   return '';
 }
-// そのスタッフがそのコマで実際に在席できる分数（退勤・出勤開始の制限を反映）
-function slotCoveredMinutes(notes,slot){
+// そのスタッフがそのコマ(その曜日)で実際に在席できる分数
+function slotCoveredMinutes(s,slot,dow){
   var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return 0;
-  var lv=staffLeaveLimitMin(notes), st=staffStartLimitMin(notes);
+  var lv=staffEndMin(s,dow), st=staffStartMin(s,dow);
   var start=r.s, end=r.e;
-  if(st!=null && st>start) start=st;  // 出勤開始が遅い
-  if(lv!=null && lv<end) end=lv;       // 退勤が早い
+  if(st!=null && st>start) start=st;
+  if(lv!=null && lv<end) end=lv;
   return Math.max(0, end-start);
 }
-// そのコマの「半分以上」を在席できるか（一部しか出られない人を弾く）
-function canCoverSlot(notes,slot){
+// そのコマ(その曜日)の「半分以上」在席できるか
+function canCoverSlot(s,slot,dow){
   var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return true;
   var dur=r.e-r.s; if(dur<=0)return true;
-  return slotCoveredMinutes(notes,slot) >= dur*0.5;
+  return slotCoveredMinutes(s,slot,dow) >= dur*0.5;
 }
 
 // 日時スタンプ整形（作成日時表示用）"2026/7/4 14:30"
@@ -316,8 +329,8 @@ function parseEmploymentType(notes){
 
 // ── 勤務条件を「入力式(cond)」⇔「条件文(notes)」で相互変換 ──
 function minToHM2(m){if(m==null||m==='')return '';return Math.floor(m/60)+':'+String(m%60).padStart(2,'0');}
-function defaultCond(){return {days:{1:true,2:true,3:true,4:true,5:true,6:true},start:'',end:'',weekMinH:'',weekMaxH:'',slot:'both',emp:''};}
-// 入力式の値から、判定プログラムが確実に読める“決まった書式”の条件文を生成
+function defaultCond(){const dt={};[1,2,3,4,5,6].forEach(d=>{dt[d]={s:'',e:''};});return {days:{1:true,2:true,3:true,4:true,5:true,6:true},dayTimes:dt,weekMinH:'',weekMaxH:'',slot:'both',emp:''};}
+// 入力式の値から、AI・判定が読める“決まった書式”の条件文を生成（曜日別の勤務時間に対応）
 function condToNotes(c){
   if(!c)return '';
   const L=[];
@@ -326,21 +339,28 @@ function condToNotes(c){
   if(c.slot==='surg')L.push('手術のみ'); else if(c.slot==='out')L.push('外来のみ'); else if(c.slot==='both')L.push('外来・手術いずれも可');
   const mn=c.weekMinH, mx=c.weekMaxH;
   if(mn&&mx)L.push(mn+'時間以上'+mx+'時間以内'); else if(mx)L.push(mx+'時間以内'); else if(mn)L.push(mn+'時間以上');
-  if(c.start)L.push(c.start+'以降勤務可能');  // 「以降」は「まで」より前に置く（退勤判定の誤作動防止）
-  if(c.end)L.push(c.end+'まで勤務可能');       // 「まで」を最後に
+  // 曜日別の勤務可能時間
+  const dt=c.dayTimes||{};
+  [1,2,3,4,5,6].forEach(d=>{
+    if(c.days&&!c.days[d])return;
+    const t=dt[d]; if(!t||(!t.s&&!t.e))return;
+    if(t.s&&t.e)L.push(DAY_JP[d]+'曜は'+t.s+'〜'+t.e+'勤務可能');
+    else if(t.e)L.push(DAY_JP[d]+'曜は'+t.e+'まで勤務可能');
+    else if(t.s)L.push(DAY_JP[d]+'曜は'+t.s+'以降勤務可能');
+  });
   return L.join('\n');
 }
 // 既存の自由文を入力式に best-effort 変換（移行用）。元の文はmemoに保持
 function notesToCond(notes){
   const c=defaultCond();
   const lv=staffLeaveLimitMin(notes), st=staffStartLimitMin(notes), wh=parseWeeklyHours(notes), emp=parseEmploymentType(notes);
-  if(lv!=null)c.end=minToHM2(lv);
-  if(st!=null)c.start=minToHM2(st);
   if(wh){ if(wh.min)c.weekMinH=wh.min; if(wh.max&&wh.max<40)c.weekMaxH=wh.max; }
   if(emp)c.emp=emp;
   if(/手術のみ|手術室のみ/.test(notes||''))c.slot='surg'; else if(/外来のみ/.test(notes||''))c.slot='out'; else c.slot='both';
-  // 「X曜不可」「X曜休」→ その曜日を不可に
   ['月','火','水','木','金','土'].forEach((j,i)=>{ if(new RegExp(j+'曜?(?:不可|休)').test(notes||''))c.days[i+1]=false; });
+  // 旧データは全曜日共通の時刻 → 許可曜日すべてに同じ時刻を入れる
+  const sHM=st!=null?minToHM2(st):'', eHM=lv!=null?minToHM2(lv):'';
+  [1,2,3,4,5,6].forEach(d=>{ c.dayTimes[d]={s:c.days[d]?sHM:'', e:c.days[d]?eHM:''}; });
   return {cond:c, memo:notes||''};
 }
 
@@ -441,8 +461,8 @@ function slotHours(dow,slotId,slotsState){
   const src=slotsState||SLOTS;
   return (src[dow]||[]).find(s=>s.id===slotId)?.h||0;
 }
-// スタッフID→メモ の参照表（実労働時間で退勤時刻を考慮するため。Appが更新する）
-var STAFF_NOTES_LOOKUP={};
+// スタッフID→スタッフ情報 の参照表（曜日別の退勤時刻などを参照するため。Appが更新する）
+var STAFF_OBJ_LOOKUP={};
 // 実労働時間の計算：拘束時間（最早出勤〜退勤）から、6時間以上なら休憩1時間を引く
 // ・複数コマの重複は通し時間で計算（二重計上しない）
 // ・「○時まで」の退勤時刻で終わりを打ち切る
@@ -467,8 +487,8 @@ function dayHours(dk,staffId,asgn,excl,slotsState,staffArr){
     const r=slot?slotRangeMin(slot):null;
     if(r&&r.s!=null&&r.e!=null)ranges.push(r);
   });
-  const notes=staffArr?((staffArr.find(s=>s.id===staffId)||{}).notes):STAFF_NOTES_LOOKUP[staffId];
-  return daySpanHours(ranges, staffLeaveLimitMin(notes));
+  const s=(staffArr?staffArr.find(x=>x.id===staffId):null)||STAFF_OBJ_LOOKUP[staffId]||null;
+  return daySpanHours(ranges, staffEndMin(s,dow));
 }
 function weekHours(staffId,weekDates,asgn,excl,slotsState,staffArr){
   return weekDates.reduce((s,d)=>s+dayHours(tdk(d),staffId,asgn,excl,slotsState,staffArr),0);
@@ -999,12 +1019,33 @@ function CondEditor({cond,onCond,memo,onMemo}){
       <div><label style={lbl}>雇用形態</label><div style={{display:'flex',gap:6}}>
         {[['','指定なし'],['fulltime','常勤'],['parttime','パート']].map(([v,t])=>(<button key={v} onClick={()=>set('emp',v)} style={chip((c.emp||'')===v)}>{t}</button>))}
       </div></div>
-      <div><label style={lbl}>勤務できる曜日</label><div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
-        {[1,2,3,4,5,6].map(d=>(<button key={d} onClick={()=>toggleDay(d)} style={chip(!!days[d])}>{DAY_JP[d]}</button>))}
-      </div></div>
-      <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
-        <div><label style={lbl}>出勤できる最も早い時刻</label><input type="time" value={c.start||''} onChange={e=>set('start',e.target.value)} style={inp}/></div>
-        <div><label style={lbl}>退勤時刻（以降は不可）</label><input type="time" value={c.end||''} onChange={e=>set('end',e.target.value)} style={inp}/></div>
+      <div><label style={lbl}>勤務できる曜日と時間（曜日ごと）</label>
+        <div style={{display:'flex',flexDirection:'column',gap:5}}>
+          {[1,2,3,4,5,6].map(d=>{
+            const allowed=days[d]!==false;
+            const dt=(c.dayTimes&&c.dayTimes[d])||{s:'',e:''};
+            const setDayTime=(field,val)=>{
+              const ndt=Object.assign({},c.dayTimes||{});
+              ndt[d]=Object.assign({s:'',e:''},ndt[d],{[field]:val});
+              // 自動伝播：この曜日が両方そろったら、空いている他の許可曜日へコピー
+              if(ndt[d].s&&ndt[d].e){[1,2,3,4,5,6].forEach(d2=>{if(d2===d)return;if(days[d2]===false)return;const t2=ndt[d2]||{s:'',e:''};if(!t2.s&&!t2.e)ndt[d2]={s:ndt[d].s,e:ndt[d].e};});}
+              onCond(Object.assign({},c,{dayTimes:ndt}));
+            };
+            return(
+              <div key={d} style={{display:'flex',alignItems:'center',gap:8}}>
+                <button onClick={()=>toggleDay(d)} style={Object.assign({width:34,textAlign:'center'},chip(allowed))}>{DAY_JP[d]}</button>
+                {allowed?(
+                  <div style={{display:'flex',alignItems:'center',gap:5,fontSize:12,color:'#475569'}}>
+                    <input type="time" value={dt.s||''} onChange={e=>setDayTime('s',e.target.value)} style={Object.assign({},inp,{padding:'4px 6px'})}/>
+                    <span>〜</span>
+                    <input type="time" value={dt.e||''} onChange={e=>setDayTime('e',e.target.value)} style={Object.assign({},inp,{padding:'4px 6px'})}/>
+                  </div>
+                ):<span style={{fontSize:12,color:'#94A3B8'}}>勤務しない</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{fontSize:10,color:'#94A3B8',marginTop:4}}>※ どこか1日に時刻を入れると、空いている他の曜日も自動で同じ時刻になります。違う曜日だけ直してください。時刻を空にすると制限なし。</div>
       </div>
       <div><label style={lbl}>週の労働時間</label>
         <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13,color:'#475569'}}>
@@ -1245,7 +1286,7 @@ function App(){
   const [m,setM]=useState(()=>saved?.m||new Date().getMonth()+1);
   const [staff,setStaff]=useState(()=>saved?.staff||STAFF0);
   // 実労働時間の退勤時刻判定に使う参照表を、描画前に同期更新（dayHoursから参照）
-  STAFF_NOTES_LOOKUP={};(staff||[]).forEach(s=>{STAFF_NOTES_LOOKUP[s.id]=s.notes;});
+  STAFF_OBJ_LOOKUP={};(staff||[]).forEach(s=>{STAFF_OBJ_LOOKUP[s.id]=s;});
   const [asgn,setAsgn]=useState(()=>saved?.asgn||{});
   const [tmps,setTmps]=useState(()=>saved?.tmps||{});
   // シフト表の最終更新日時（作成・編集のたびに更新）
@@ -2635,8 +2676,8 @@ ${bodyHtml}
       Object.keys(na[dk]).forEach(slotId=>{
         const slot=(slots[dow]||[]).find(s=>s.id===slotId); if(!slot)return;
         na[dk][slotId]=(na[dk][slotId]||[]).filter(sid=>{
-          const notes=(staff.find(s=>s.id===sid)||{}).notes;
-          return canCoverSlot(notes,slot);
+          const so=staff.find(s=>s.id===sid);
+          return canCoverSlot(so,slot,dow);
         });
       });
     });
@@ -2673,8 +2714,8 @@ ${bodyHtml}
             const cand=(na[dk][A.id]||[]).find(sid=>{
               if(isOffOrExcl(dk,A.id,sid))return false;
               if((na[dk][B.id]||[]).includes(sid))return false;
-              const notes=(staff.find(s=>s.id===sid)||{}).notes;
-              if(!canCoverSlot(notes,B))return false; // そのコマの半分も在席できない人は移さない
+              const so=staff.find(s=>s.id===sid);
+              if(!canCoverSlot(so,B,dow))return false; // そのコマの半分も在席できない人は移さない
               // 移動を試算：Aから外しBへ入れて、8時間以内・週上限以内か
               const trial={...na,[dk]:{...na[dk],[A.id]:(na[dk][A.id]||[]).filter(x=>x!==sid),[B.id]:[...(na[dk][B.id]||[]),sid]}};
               if(dayHours(dk,sid,trial,manualExclusions,slots,staff)>DAILY_LIMIT)return false;
@@ -2743,7 +2784,7 @@ ${bodyHtml}
         const cands=staff.filter(s=>{
           if((na[dk][slot.id]||[]).includes(s.id))return false;
           if(isOffOrExcl(dk,slot.id,s.id))return false;
-          if(!canCoverSlot(s.notes,slot))return false; // そのコマの半分も在席できない人は延長させない
+          if(!canCoverSlot(s,slot,dow))return false; // そのコマの半分も在席できない人は延長させない
           const sp=staffRanges(dk,s.id); if(sp.length===0)return false; // その日出勤していない人は呼ばない
           const cs=Math.min.apply(null,sp.map(x=>x.s)), ce=Math.max.apply(null,sp.map(x=>x.e));
           if(!(r.s<=ce && r.e>=cs))return false; // 既存シフトと前後で連続/重複している（延長で入れる）
@@ -3774,7 +3815,7 @@ ${bodyHtml}
                                             const isExcl=exclIds.includes(sid);
                                             const isOff=slotOffIds.includes(sid);
                                             const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmps[dk]?.[String(sid)]?.type);
-                                            const leaveNote=(!isOffTmp&&!isExcl)?leaveNoteForSlot(s.notes,slot):'';
+                                            const leaveNote=(!isOffTmp&&!isExcl)?leaveNoteForSlot(s,slot,d.getDay()):'';
                                             const isReliefAdded=reliefAddedSet.has(dk+'|'+slot.id+'|'+sid);
                                             // isOff（tmps由来）のスタッフはバッジを薄く表示して「クリックで復活」を可能にする
                                             return(
