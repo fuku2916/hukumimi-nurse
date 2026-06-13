@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v27</title>
+<title>シフト管理 v28</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v27';
+const APP_VERSION = 'v28';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1197,7 +1197,7 @@ function App(){
     if(appMode!=='admin')return; // 編集できるのは管理者のみ
     setShiftUpdatedAt(new Date().toISOString());
   // eslint-disable-next-line
-  },[asgn,tmps,manualExclusions]);
+  },[asgn,tmps,manualExclusions,slots,weeklyReq,monthlyReq,baseShift,manualClosedDays,paidLeave,staff,newSlotCounter]);
 
   // ── 自動保存 ──
   // ローカル自動保存
