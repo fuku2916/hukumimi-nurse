@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v28</title>
+<title>シフト管理 v29</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v28';
+const APP_VERSION = 'v29';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2997,6 +2997,9 @@ ${bodyHtml}
                 </span>
               )}
             </div>
+            <div style={{fontSize:12,color:'#9A3412',background:'#FFF7ED',border:'1px solid #FDBA74',borderRadius:8,padding:'8px 12px',margin:'0 8px 10px',lineHeight:1.6}}>
+              ※ <strong>⚠</strong> のところはスタッフが不足しています。出勤可能な方は、自分の行の日付をタップして「応援できるコマを申請」（勤務可能ボタン）を押してください。
+            </div>
             <div style={{overflow:'auto',maxHeight:'calc(100vh - 150px)',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
               <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
                 <thead>
@@ -3016,15 +3019,20 @@ ${bodyHtml}
                       );
                     })}
                   </tr>
-                  {/* 充足度（人員不足⚠）— 日付の下に固定表示 */}
+                  {/* 充足度（人員不足⚠）— 日付の下に固定表示。時間順に並べる */}
                   {(()=>{
-                    const labels=[],seen={};
-                    [1,2,3,4,5,6].forEach(dw=>{(slots[dw]||[]).forEach(sl=>{if(!seen[sl.label]){seen[sl.label]=true;labels.push(sl.label);}});});
+                    const labels=[],seen={},startOf={};
+                    [1,2,3,4,5,6].forEach(dw=>{(slots[dw]||[]).forEach(sl=>{
+                      if(!seen[sl.label]){seen[sl.label]=true;labels.push(sl.label);}
+                      const r=slotRangeMin(sl);const st=(r&&r.s!=null)?r.s:9999;
+                      if(startOf[sl.label]===undefined||st<startOf[sl.label])startOf[sl.label]=st;
+                    });});
+                    labels.sort((a,b)=>(startOf[a]??9999)-(startOf[b]??9999)); // 開始時刻が早い順
                     return labels.map((label,idx)=>{
                       const topPx=48+idx*20;
                       return(
                         <tr key={'cov_'+label}>
-                          <th style={{padding:'0 8px',height:20,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'left',fontSize:10,fontWeight:600,color:'#9A3412',whiteSpace:'nowrap',position:'sticky',left:0,top:topPx,zIndex:6,background:'#FFF7ED'}}>{idx===0?'⚠ 充足度 ':''}{label}</th>
+                          <th style={{padding:'0 8px',height:20,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'left',fontSize:10,fontWeight:600,color:'#9A3412',whiteSpace:'nowrap',position:'sticky',left:0,top:topPx,zIndex:6,background:'#FFF7ED'}}>{label}</th>
                           {staffDates.map(d=>{
                             const dk=tdk(d),dow=d.getDay();
                             const slot=(slots[dow]||[]).find(x=>x.label===label);
