@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v29</title>
+<title>シフト管理 v30</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v29';
+const APP_VERSION = 'v30';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -858,12 +858,12 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
                 );
               })}
             </div>
-            {/* 応援出勤（ヘルプ） */}
+            {/* ベースシフト外の勤務（人手が足りない枠に入れる方） */}
             <div style={{borderTop:'1px solid #E2E8F0',paddingTop:12,marginBottom:10}}>
-              <div style={{padding:'8px 12px',background:'#ECFDF5',borderRadius:8,border:'1px solid #6EE7B7',fontSize:12,color:'#065F46',fontWeight:600,marginBottom:6}}>🙋 応援出勤（ヘルプ）</div>
+              <div style={{padding:'8px 12px',background:'#ECFDF5',borderRadius:8,border:'1px solid #6EE7B7',fontSize:12,color:'#065F46',fontWeight:600,marginBottom:6}}>🙋 ベースシフト外の勤務</div>
               <div style={{fontSize:11,color:'#64748B',lineHeight:1.6,marginBottom:8}}>
-                人手が足りない日に「この日はたまたま空いているので入れます」という<strong>応援の申し出</strong>です。
-                希望しても必ず勤務が入るわけではなく、<strong>管理者が確認して必要なときだけ</strong>シフトに反映します。
+                人手が足りない枠に、<strong>ベースシフト外でも勤務できる</strong>場合に申請します。
+                申請しても必ず入るわけではなく、<strong>管理者が確認して必要なときだけ</strong>シフトに反映します。
               </div>
               <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:8}}>
                 {allDaySlots.map(slot=>{
@@ -883,9 +883,9 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
                   );
                 })}
               </div>
-              <button onClick={()=>{if(selSlots.length===0){alert('応援できるコマを1つ以上選んでください');return;}onApplyWorkWish(selSlots);}}
+              <button onClick={()=>{if(selSlots.length===0){alert('勤務できるコマを1つ以上選んでください');return;}onApplyWorkWish(selSlots);}}
                 style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:selSlots.length>0?'#10B981':'#CBD5E1',color:'#fff',cursor:selSlots.length>0?'pointer':'not-allowed',fontSize:14,fontWeight:700}}>
-                🙋 応援できるコマを申請する
+                🙋 このコマで勤務できます（申請）
               </button>
             </div>
             {/* ミス報告 */}
@@ -2998,7 +2998,7 @@ ${bodyHtml}
               )}
             </div>
             <div style={{fontSize:12,color:'#9A3412',background:'#FFF7ED',border:'1px solid #FDBA74',borderRadius:8,padding:'8px 12px',margin:'0 8px 10px',lineHeight:1.6}}>
-              ※ <strong>⚠</strong> のところはスタッフが不足しています。出勤可能な方は、自分の行の日付をタップして「応援できるコマを申請」（勤務可能ボタン）を押してください。
+              ※ <strong>⚠</strong> のところはスタッフが不足しています。ベースシフト外でも勤務できる方は、自分の行の日付をタップして「このコマで勤務できます（申請）」を押してください。
             </div>
             <div style={{overflow:'auto',maxHeight:'calc(100vh - 150px)',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
               <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
@@ -3029,10 +3029,10 @@ ${bodyHtml}
                     });});
                     labels.sort((a,b)=>(startOf[a]??9999)-(startOf[b]??9999)); // 開始時刻が早い順
                     return labels.map((label,idx)=>{
-                      const topPx=48+idx*20;
+                      const topPx=47+idx*20; // 1〜2px重ねて固定行のすき間を塞ぐ（下のスタッフ表を透けさせない）
                       return(
                         <tr key={'cov_'+label}>
-                          <th style={{padding:'0 8px',height:20,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'left',fontSize:10,fontWeight:600,color:'#9A3412',whiteSpace:'nowrap',position:'sticky',left:0,top:topPx,zIndex:6,background:'#FFF7ED'}}>{label}</th>
+                          <th style={{padding:'0 8px',height:22,boxSizing:'border-box',borderRight:'1px solid #E2E8F0',borderBottom:'1px solid #E2E8F0',textAlign:'left',fontSize:10,fontWeight:600,color:'#9A3412',whiteSpace:'nowrap',position:'sticky',left:0,top:topPx,zIndex:7,background:'#FFF7ED'}}>{label}</th>
                           {staffDates.map(d=>{
                             const dk=tdk(d),dow=d.getDay();
                             const slot=(slots[dow]||[]).find(x=>x.label===label);
@@ -3047,7 +3047,7 @@ ${bodyHtml}
                               }
                             }
                             return(
-                              <td key={dk} style={{height:20,boxSizing:'border-box',border:'1px solid #E2E8F0',textAlign:'center',fontSize:11,padding:0,position:'sticky',top:topPx,zIndex:3,background:short?'#FFF7ED':(slot?'#fff':'#F8FAFC'),color:'#C2410C'}}>{short?'⚠':''}</td>
+                              <td key={dk} style={{height:22,boxSizing:'border-box',borderRight:'1px solid #E2E8F0',borderBottom:'1px solid #E2E8F0',textAlign:'center',fontSize:11,padding:0,position:'sticky',top:topPx,zIndex:5,background:short?'#FDE9D6':(slot?'#FFFDFA':'#EEF1F5'),color:'#C2410C',fontWeight:700}}>{short?'⚠':''}</td>
                             );
                           })}
                         </tr>
@@ -4158,9 +4158,9 @@ ${bodyHtml}
                           ?<div style={{display:'flex',gap:4,flexShrink:0}}>
                             <button onClick={()=>{
                               setRequests(prev=>{const day={...(prev[dk]||{})};day[String(sid)]={...(day[String(sid)]||{}),approved:true};return{...prev,[dk]:day};});
-                            }} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,whiteSpace:'nowrap',fontWeight:600}}>応援を承認</button>
+                            }} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,whiteSpace:'nowrap',fontWeight:600}}>勤務を承認</button>
                             <button onClick={()=>{
-                              if(!window.confirm('この応援出勤の申請を却下（削除）しますか？'))return;
+                              if(!window.confirm('このベースシフト外勤務の申請を却下（削除）しますか？'))return;
                               setRequests(prev=>{const day={...(prev[dk]||{})};delete day[String(sid)];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});
                             }} style={{padding:'3px 8px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}}>却下</button>
                           </div>
