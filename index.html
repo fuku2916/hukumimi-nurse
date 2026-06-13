@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v21</title>
+<title>シフト管理 v22</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v21';
+const APP_VERSION = 'v22';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2366,6 +2366,62 @@ ${bodyHtml}
     return na;
   }
 
+  // ── 配置の偏り調整 ──
+  // 同じ種類のコマ（手術↔手術 / 外来↔外来）の中で、定員より多い枠から、
+  // 定員に満たない枠へ、勤務可能なスタッフを移して均す。
+  function rebalanceDayCoverage(rawAsgn){
+    const na={};
+    Object.entries(rawAsgn||{}).forEach(([dk,sm])=>{na[dk]={};Object.entries(sm).forEach(([slotId,ids])=>{na[dk][slotId]=[...(ids||[])];});});
+    const isOffOrExcl=(dk,slotId,sid)=>{
+      if((manualExclusions[dk]?.[slotId]||[]).includes(sid))return true;
+      const tc=tmps[dk]?.[String(sid)];
+      return !!(tc&&['off','paid','paid_am','paid_pm'].includes(tc.type));
+    };
+    const activeCount=(dk,slotId)=>(na[dk]?.[slotId]||[]).filter(sid=>!isOffOrExcl(dk,slotId,sid)).length;
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk)||!na[dk])return;
+      const dow=d.getDay();
+      const week=weeks.find(w=>w.some(x=>tdk(x)===dk))||[];
+      const daySlots=slots[dow]||[];
+      daySlots.forEach(B=>{
+        const reqB=getReq(dk,B.id); if(reqB<=0)return;
+        let guard=0;
+        while(activeCount(dk,B.id)<reqB && guard++<10){
+          let moved=false;
+          for(const A of daySlots){
+            if(A.id===B.id)continue;
+            if(A.type!==B.type)continue; // 同種コマ間のみ（スキル安全）
+            if(activeCount(dk,A.id)<=getReq(dk,A.id))continue; // Aに余剰がなければ動かさない
+            const rB=slotRangeMin(B);
+            const cand=(na[dk][A.id]||[]).find(sid=>{
+              if(isOffOrExcl(dk,A.id,sid))return false;
+              if((na[dk][B.id]||[]).includes(sid))return false;
+              const notes=(staff.find(s=>s.id===sid)||{}).notes;
+              const lim=staffLeaveLimitMin(notes);
+              if(rB&&rB.s!=null&&lim!=null&&lim<=rB.s)return false; // 退勤時刻がBの開始前→不可
+              // 移動を試算：Aから外しBへ入れて、8時間以内・週上限以内か
+              const trial={...na,[dk]:{...na[dk],[A.id]:(na[dk][A.id]||[]).filter(x=>x!==sid),[B.id]:[...(na[dk][B.id]||[]),sid]}};
+              if(dayHours(dk,sid,trial,manualExclusions,slots,staff)>DAILY_LIMIT)return false;
+              const wh=parseWeeklyHours(notes);
+              if(wh&&wh.max>0&&week.length>0){
+                const wkH=week.reduce((s2,d3)=>s2+dayHours(tdk(d3),sid,trial,manualExclusions,slots,staff),0);
+                if(wkH>Math.min(wh.max,WEEKLY_LIMIT))return false;
+              }
+              return true;
+            });
+            if(cand!=null){
+              na[dk][A.id]=(na[dk][A.id]||[]).filter(x=>x!==cand);
+              na[dk][B.id]=[...(na[dk][B.id]||[]),cand];
+              moved=true; break;
+            }
+          }
+          if(!moved)break;
+        }
+      });
+    });
+    return na;
+  }
+
   // ── 超過勤務(1日8時間超)の自動調整 ──
   // ①超過者を末尾コマから外して8時間以内に収める
   // ②空いた枠は「その日すでに出勤していて前後を延長すれば入れる人」で補う（1時間のために新規出勤はさせない）
@@ -2438,7 +2494,8 @@ ${bodyHtml}
   }
   function applyOvertimeRelief(){
     const beforeAsgn=asgn;
-    const fixed=relieveDailyOvertime(asgn);
+    // ①偏り調整（余剰枠→不足枠へ移動）→ ②超過勤務の調整（トリム＋延長）
+    const fixed=relieveDailyOvertime(rebalanceDayCoverage(asgn));
     // 変更点の差分を作成（コマ単位で 外れた人／入った人）
     const nameOf=id=>(staff.find(s=>s.id===id)||{}).name||('ID'+id);
     const changes=[];
@@ -2456,7 +2513,7 @@ ${bodyHtml}
         }
       });
     });
-    if(changes.length===0){alert('調整対象（8時間超）はありませんでした。');return;}
+    if(changes.length===0){alert('調整対象（配置の偏り・8時間超）はありませんでした。');return;}
     setPreReliefAsgn(beforeAsgn);
     setReliefChanges(changes);
     setAsgn(fixed);
@@ -3125,8 +3182,8 @@ ${bodyHtml}
             <span style={{fontWeight:700,fontSize:'var(--fs-nav)'}}>{y}年 {m}月</span>
             <button onClick={()=>nav(1)}  style={{border:K.bd2,borderRadius:K.rmd,padding:'4px 10px',background:K.bg,cursor:'pointer',fontSize:'var(--fs-nav)'}}>▶</button>
             <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-              <button onClick={applyOvertimeRelief} title="8時間超の人を末尾コマから外し、空いた枠はその日出勤中の人の延長で補います"
-                style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 超過勤務を自動調整</button>
+              <button onClick={applyOvertimeRelief} title="①余剰枠→不足枠へ配置を均す ②8時間超の人を末尾コマから外し空いた枠を延長で補う"
+                style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（偏り・超過）</button>
               {preReliefAsgn!=null&&(
                 <button onClick={undoOvertimeRelief} title="自動調整を取り消して調整前に戻します"
                   style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #64748B',background:'#F1F5F9',color:'#334155',whiteSpace:'nowrap'}}>↩ 元に戻す</button>
