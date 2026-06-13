@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v18</title>
+<title>シフト管理 v19</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v18';
+const APP_VERSION = 'v19';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -295,7 +295,8 @@ function enforceHourLimits(rawAsgn, staff, weeks, slots, pinned, reqMap){
       });
       if(assigned.length===0) return;
 
-      const totalH=assigned.reduce((sum,a)=>sum+a.h, 0);
+      // 実労働時間（拘束−休憩・退勤打ち切り）で週上限を判定（重複コマの二重計上を防ぐ）
+      const totalH=weekDates.reduce((sum,d)=>sum+dayHours(tdk(d),s.id,na,{},slots,staff),0);
       if(totalH<=maxH) return;
 
       // 曜日ごとにグループ化してラウンドロビン選択
@@ -364,19 +365,40 @@ function slotHours(dow,slotId,slotsState){
   const src=slotsState||SLOTS;
   return (src[dow]||[]).find(s=>s.id===slotId)?.h||0;
 }
-function dayHours(dk,staffId,asgn,excl,slotsState){
+// スタッフID→メモ の参照表（実労働時間で退勤時刻を考慮するため。Appが更新する）
+var STAFF_NOTES_LOOKUP={};
+// 実労働時間の計算：拘束時間（最早出勤〜退勤）から、6時間以上なら休憩1時間を引く
+// ・複数コマの重複は通し時間で計算（二重計上しない）
+// ・「○時まで」の退勤時刻で終わりを打ち切る
+function daySpanHours(ranges, leaveLimitMin){
+  if(!ranges.length)return 0;
+  let start=Math.min.apply(null,ranges.map(r=>r.s));
+  let end=Math.max.apply(null,ranges.map(r=>r.e));
+  if(leaveLimitMin!=null) end=Math.min(end, Math.max(start, leaveLimitMin));
+  let span=end-start;
+  if(span<=0)return 0;
+  if(span>=360) span-=60; // 6時間以上の勤務は休憩1時間
+  return span/60;
+}
+function dayHours(dk,staffId,asgn,excl,slotsState,staffArr){
   const d=new Date(dk),dow=d.getDay(),da=asgn[dk]||{};
-  return Object.entries(da).reduce((sum,[slotId,ids])=>{
-    if(!ids.includes(staffId))return sum;
-    if(excl&&(excl[dk]?.[slotId]||[]).includes(staffId))return sum;
-    return sum+slotHours(dow,slotId,slotsState);
-  },0);
+  const src=slotsState||SLOTS;
+  const ranges=[];
+  Object.entries(da).forEach(([slotId,ids])=>{
+    if(!ids.includes(staffId))return;
+    if(excl&&(excl[dk]?.[slotId]||[]).includes(staffId))return;
+    const slot=(src[dow]||[]).find(s=>s.id===slotId);
+    const r=slot?slotRangeMin(slot):null;
+    if(r&&r.s!=null&&r.e!=null)ranges.push(r);
+  });
+  const notes=staffArr?((staffArr.find(s=>s.id===staffId)||{}).notes):STAFF_NOTES_LOOKUP[staffId];
+  return daySpanHours(ranges, staffLeaveLimitMin(notes));
 }
-function weekHours(staffId,weekDates,asgn,excl,slotsState){
-  return weekDates.reduce((s,d)=>s+dayHours(tdk(d),staffId,asgn,excl,slotsState),0);
+function weekHours(staffId,weekDates,asgn,excl,slotsState,staffArr){
+  return weekDates.reduce((s,d)=>s+dayHours(tdk(d),staffId,asgn,excl,slotsState,staffArr),0);
 }
-function monthHours(staffId,dates,asgn,excl,slotsState){
-  return dates.reduce((s,d)=>s+dayHours(tdk(d),staffId,asgn,excl,slotsState),0);
+function monthHours(staffId,dates,asgn,excl,slotsState,staffArr){
+  return dates.reduce((s,d)=>s+dayHours(tdk(d),staffId,asgn,excl,slotsState,staffArr),0);
 }
 function getWeeksForDates(dates){return groupByWeek(dates);}
 
@@ -1046,6 +1068,8 @@ function App(){
   const [y,setY]=useState(()=>saved?.y||new Date().getFullYear());
   const [m,setM]=useState(()=>saved?.m||new Date().getMonth()+1);
   const [staff,setStaff]=useState(()=>saved?.staff||STAFF0);
+  // 実労働時間の退勤時刻判定に使う参照表を、描画前に同期更新（dayHoursから参照）
+  STAFF_NOTES_LOOKUP={};(staff||[]).forEach(s=>{STAFF_NOTES_LOOKUP[s.id]=s.notes;});
   const [asgn,setAsgn]=useState(()=>saved?.asgn||{});
   const [tmps,setTmps]=useState(()=>saved?.tmps||{});
   const [selDk,setSelDk]=useState(null);
