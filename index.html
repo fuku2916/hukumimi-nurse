@@ -28,6 +28,9 @@
   .pc-menu { display: none !important; }
   .mobile-menu-btn { display: block !important; }
 }
+@keyframes aiGenPulse{0%,100%{opacity:1}50%{opacity:.6}}
+@keyframes aiSpin{to{transform:rotate(360deg)}}
+.ai-gen-spin{width:16px;height:16px;border:2.5px solid #BFDBFE;border-top-color:#1D4ED8;border-radius:50%;animation:aiSpin .8s linear infinite;flex-shrink:0;display:inline-block}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;font-size:14px;background:#F1F5F9;color:#1E293B;min-height:100vh}
 input,textarea,button,select{font-family:inherit;font-size:inherit;outline:none}
@@ -57,28 +60,6 @@ const SLOT_COLORS = {
   pm:    {border:'#6D28D9',bgLight:'rgba(237,233,254,.25)',text:'#4C1D95',bgDetail:'#EDE9FE'}, // 夜=紫
 };
 // コマ色はlabel（名前）で自動判定。colorIdは無視。
-function getShortageInfo(dk, slots, asgn, tmps, weeklyReq) {
-  try {
-    var dow = new Date(dk).getDay();
-    var daySlots = (slots && slots[dow]) || [];
-    var dayAsgn = (asgn && asgn[dk]) || {};
-    var hasEmpty = false, hasShortage = false;
-    for (var i=0; i<daySlots.length; i++) {
-      var slot = daySlots[i];
-      var ids = (dayAsgn[slot.id]||[]).filter(function(sid){
-        var t = tmps && tmps[dk] && tmps[dk][String(sid)];
-        return !t || (t.type !== 'off' && t.type !== 'paid');
-      });
-      var need = (weeklyReq && weeklyReq[dow] && weeklyReq[dow][slot.id]) || 0;
-      if (need > 0 && ids.length < need) {
-        hasShortage = true;
-        if (ids.length === 0) hasEmpty = true;
-      }
-    }
-    return hasEmpty ? 'empty' : hasShortage ? 'shortage' : 'ok';
-  } catch(e) { return 'ok'; }
-}
-
 function getStaffTimeStr(sSlots, staffNotes) {
   try {
     var minS=9999, maxE=-1;
@@ -939,10 +920,18 @@ function App(){
   // requestsが変わったら即保存
   React.useEffect(()=>{saveRequests(requests);},[requests]);
   // 管理者モードは申請データをポーリングで監視（3秒ごと）
+  // クラウド有効時はSupabaseから取得（別端末から出された休み希望を確実に反映）。
+  // 無効時のみlocalStorageを参照する。
   React.useEffect(()=>{
     if(appMode!=='admin')return;
-    const id=setInterval(()=>{
-      const latest=loadRequests();
+    const id=setInterval(async()=>{
+      let latest;
+      if(SB_ENABLED){
+        latest=await SB.get('requests_data');
+        if(latest==null)return; // 取得失敗時は既存データを維持
+      }else{
+        latest=loadRequests();
+      }
       setRequests(prev=>{
         if(JSON.stringify(prev)===JSON.stringify(latest))return prev;
         return latest;
@@ -1069,11 +1058,12 @@ function App(){
     },2000);
   },[y,m,staff,asgn,tmps,weeklyReq,monthlyReq,manualExclusions,manualClosedDays,baseShift,slots,newSlotCounter,paidLeave,appMode]);
 
-  // Supabase自動保存（requests）
+  // Supabase自動保存（requests）※shift_dataとは別タイマーで保存（互いに上書きしないように）
+  const sbReqSaveTimer=React.useRef(null);
   useEffect(()=>{
     if(!SB_ENABLED)return;
-    if(sbSaveTimer.current)clearTimeout(sbSaveTimer.current);
-    sbSaveTimer.current=setTimeout(async()=>{
+    if(sbReqSaveTimer.current)clearTimeout(sbReqSaveTimer.current);
+    sbReqSaveTimer.current=setTimeout(async()=>{
       await SB.set('requests_data',requests);
     },1000);
   },[requests]);
@@ -1101,6 +1091,20 @@ function App(){
 
   const dates=useMemo(()=>getWorkDates(y,m),[y,m]);
   const weeks=useMemo(()=>groupByWeek(dates),[dates]);
+
+  // ── 当月の必要コマ数リスト（パターン適用後の空き枠算出用）──
+  // 開院日ごとに、各診療枠の必要人数（weeklyReq、未設定は1）を持つ
+  const patReqList=useMemo(()=>{
+    return dates
+      .filter(d=>!isClosedDay(tdk(d)))
+      .map(d=>{
+        const dow=d.getDay();
+        const daySlots=(slots[dow]||[]);
+        const reqBySlot={};
+        daySlots.forEach(sl=>{reqBySlot[sl.id]=weeklyReq[dow]?.[sl.id]??1;});
+        return {dk:tdk(d),reqBySlot};
+      });
+  },[dates,slots,weeklyReq,manualClosedDays,holidays]);
 
   const hasAnyAssignment=useMemo(()=>
     dates.some(d=>Object.values(asgn[tdk(d)]||{}).some(ids=>ids.length>0)),
@@ -1337,12 +1341,6 @@ td.sat{background:#FFFBEB}
 .no-staff{font-size:7pt;color:#000;font-weight:400}
 @page{size:A4 portrait;margin:8mm}
 @media print{body{transform:scale(${scale});transform-origin:top left;width:calc(210mm / ${scale});padding:0}}
-@keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
-.spinner { display:inline-block; width:28px; height:28px; border:4px solid #E2E8F0; border-top-color:#185FA5; border-radius:50%; animation:spin 0.8s linear infinite; }
-@media print {
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  body { background: #fff !important; }
-}
 </style></head><body>
 <h1>医療法人　福耳会　シフト表　${y}年 ${m}月</h1>
 <div class="sub">印刷日: ${new Date().toLocaleDateString('ja-JP')}</div>
@@ -2229,6 +2227,40 @@ ${bodyHtml}
     return na;
   }
 
+  // ── ベースシフトのコマ被覆を保証（時間調整で消えた金土などを最後に復活）──
+  // 労働時間調整(enforceHourLimits)が週後半の枠を削って金・土が空になるのを防ぐため、
+  // ベースシフトで指定されたスタッフを各開院日のコマに必ず再充当する。
+  function ensureBaseCoverage(rawAsgn){
+    const na={};
+    Object.entries(rawAsgn).forEach(([dk,sm])=>{na[dk]={};Object.entries(sm).forEach(([slotId,ids])=>{na[dk][slotId]=[...(ids||[])];});});
+    const hasBase=['A','B'].some(p=>Object.keys(baseShift[p]||{}).length>0);
+    if(!hasBase)return na; // ベースシフト未設定なら何もしない
+    dates.forEach(d=>{
+      const dk=tdk(d);
+      if(isClosedDay(dk))return;
+      const dow=d.getDay();
+      const pattern=getABPatternForDate(d);
+      const baseForDay=(baseShift[pattern]||{})[dow]||{};
+      (slots[dow]||[]).forEach(slot=>{
+        const baseIds=(baseForDay[slot.id]||[]).filter(sid=>staff.some(s=>s.id===sid));
+        if(baseIds.length===0)return;
+        if(!na[dk])na[dk]={};
+        let cur=na[dk][slot.id]||[];
+        baseIds.forEach(sid=>{
+          if(cur.includes(sid))return; // すでに入っている
+          if((manualExclusions[dk]?.[slot.id]||[]).includes(sid))return; // 手動除外は尊重
+          const tc=tmps[dk]?.[String(sid)];
+          if(tc&&['off','paid','paid_am','paid_pm'].includes(tc.type))return; // 休み/有給は尊重
+          // 1日の労働上限を超える場合は入れない（物理的に不可能な日を避ける）
+          if(dayHours(dk,sid,na,manualExclusions,slots)+slotHours(dow,slot.id,slots)>DAILY_LIMIT)return;
+          cur=[...cur,sid];
+          na[dk][slot.id]=cur;
+        });
+      });
+    });
+    return na;
+  }
+
   function applyPat(pat){
     const hasExcl=Object.values(manualExclusions).some(sm=>Object.values(sm).some(ids=>(ids||[]).length>0));
 
@@ -2258,7 +2290,7 @@ ${bodyHtml}
           na[dk][slotId]=merged;
         });
       });
-      setAsgn(ensureMinSlots(fillFulltimeMinHours(enforceHourLimits(na,staff,weeks,slots))));
+      setAsgn(ensureBaseCoverage(ensureMinSlots(fillFulltimeMinHours(enforceHourLimits(na,staff,weeks,slots)))));
       setApid(pat.id);
       setManualExclusions({});
     } else {
@@ -2269,7 +2301,7 @@ ${bodyHtml}
           na[dk][s2]=(Array.isArray(sids)?sids:[]).filter(sid=>staff.some(s=>s.id===sid));
         });
       });
-      setAsgn(ensureMinSlots(fillFulltimeMinHours(enforceHourLimits(na,staff,weeks,slots))));
+      setAsgn(ensureBaseCoverage(ensureMinSlots(fillFulltimeMinHours(enforceHourLimits(na,staff,weeks,slots)))));
       setApid(pat.id);
     }
   }
@@ -2528,6 +2560,15 @@ ${bodyHtml}
               <span style={{fontWeight:700,fontSize:15}}>{staffY}年 {staffM}月</span>
               <button onClick={()=>{if(staffM===12){setStaffY(v=>v+1);setStaffM(1);}else setStaffM(v=>v+1);setStaffReqDk(null);}} style={{border:'1px solid #CBD5E1',borderRadius:8,padding:'4px 10px',background:'#fff',cursor:'pointer',fontSize:14}}>▶</button>
               <span style={{fontSize:11,color:'#64748B'}}>自分の行をタップ→申請</span>
+              {/* クラウド同期ステータス（管理PIN不要で自動取得していることを明示） */}
+              {SB_ENABLED&&(
+                <span style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:5,fontSize:11,padding:'3px 9px',borderRadius:8,
+                  background:sbLoading?'#EFF6FF':sbStatus==='error'?'#FEF2F2':'#F0FDF4',
+                  color:sbLoading?'#1D4ED8':sbStatus==='error'?'#991B1B':'#166534',
+                  border:'1px solid '+(sbLoading?'#BFDBFE':sbStatus==='error'?'#FCA5A5':'#86EFAC')}}>
+                  {sbLoading?'🔄 最新シフトを取得中…':sbStatus==='error'?'⚠ クラウドに接続できません':'☁️ 自動更新中（管理者が公開したシフトを表示）'}
+                </span>
+              )}
             </div>
             <div style={{overflowX:'auto',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
               <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
@@ -2570,15 +2611,12 @@ ${bodyHtml}
                           const rt=req?REQ_TYPES[req.type]:null;
                           const tmpCond=tmps[dk]?.[String(s.id)];
                           const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmpCond?.type);
-                          const _si=(!isClosed&&!req&&!isOffTmp)?getShortageInfo(dk,slots,asgn,tmps,weeklyReq):'ok';
                           const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':isSat?'#FFFBEB':'';
-                          const _badge=_si==='empty'?'❌':_si==='shortage'?'⚠️':null;
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
-                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',position:'relative',verticalAlign:'middle',
+                              style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
-                              {_badge&&<div style={{position:'absolute',top:1,right:1,fontSize:10,lineHeight:1,pointerEvents:'none'}}>{_badge}</div>}
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
                               :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
@@ -2601,6 +2639,17 @@ ${bodyHtml}
                 </tbody>
               </table>
             </div>
+            {(()=>{
+              const hasShift=staffDates.some(d=>Object.values(asgn[tdk(d)]||{}).some(ids=>ids&&ids.length>0));
+              if(!hasShift&&!sbLoading){
+                return(
+                  <div style={{marginTop:10,padding:'12px 14px',background:'#FFFBEB',border:'1px solid #FCD34D',borderRadius:10,fontSize:13,color:'#92400E',lineHeight:1.6}}>
+                    この月のシフトはまだ公開されていません。管理者が公開すると<strong>自動でここに表示</strong>されます（管理者用のパスワードを入力する必要はありません）。
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div style={{fontSize:16,color:'#64748B',marginTop:10,paddingLeft:4}}>※ <strong style={{color:'#185FA5'}}>自分の行</strong>をタップすると申請できます</div>
           </div>
         )}
@@ -2776,19 +2825,6 @@ ${bodyHtml}
             </div>
           )}
 
-          {/* AI生成中スピナー（fixed） */}
-          {aLoad&&(
-            <div style={{position:'fixed',top:70,left:'50%',transform:'translateX(-50%)',zIndex:9999,
-              background:'rgba(255,255,255,0.97)',borderRadius:14,padding:'12px 20px',
-              boxShadow:'0 4px 20px rgba(0,0,0,0.18)',display:'flex',alignItems:'center',gap:10,
-              border:'1.5px solid #185FA5'}}>
-              <div className="spinner"/>
-              <div>
-                <div style={{fontSize:13,fontWeight:700,color:'#185FA5'}}>シフト自動作成中</div>
-                <div style={{fontSize:11,color:'#64748B'}}>AIが計算しています...</div>
-              </div>
-            </div>
-          )}
           {/* 自動保存インジケーター */}
           <span style={{marginLeft:'auto',fontSize:14,color:K.textS,whiteSpace:'nowrap',flexShrink:0}}>
           {SB_ENABLED
@@ -2805,6 +2841,16 @@ ${bodyHtml}
       {/* ================================================================ */}
       {tab==='shift'&&(
         <div style={{padding:16}}>
+          {/* AI自動生成中バナー */}
+          {aLoad&&(
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,padding:'12px 16px',background:'#EFF6FF',border:'1px solid #93C5FD',borderRadius:K.rlg,animation:'aiGenPulse 1.6s ease-in-out infinite'}}>
+              <span className="ai-gen-spin"></span>
+              <div style={{lineHeight:1.5}}>
+                <span style={{fontWeight:700,fontSize:14,color:'#1D4ED8'}}>🤖 AIがシフトを自動生成中です…</span>
+                <span style={{fontWeight:400,fontSize:12,color:'#3B82F6',marginLeft:8}}>完了まで30秒〜1分ほどかかります。画面を閉じずにお待ちください。</span>
+              </div>
+            </div>
+          )}
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
             <button onClick={()=>nav(-1)} style={{border:K.bd2,borderRadius:K.rmd,padding:'4px 10px',background:K.bg,cursor:'pointer',fontSize:'var(--fs-nav)'}}>◀</button>
             <span style={{fontWeight:700,fontSize:'var(--fs-nav)'}}>{y}年 {m}月</span>
@@ -2876,7 +2922,7 @@ ${bodyHtml}
 
           {showHoursPanel&&<HoursPanel staff={staff} weeks={weeks} dates={dates} asgn={asgn} manualExclusions={manualExclusions} slots={slots} onClose={()=>setShowHoursPanel(false)} onAutoFill={autoFillHours}/>}
           {showReportPanel&&<ReportPanel reports={generateReport()} y={y} m={m} onClose={()=>setShowReportPanel(false)} onExportPDF={exportReportPDF}/>}
-          {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
+          {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
 
           {/* legend */}
           <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
@@ -4547,7 +4593,7 @@ function HoursPanel({staff,weeks,dates,asgn,manualExclusions,slots,onClose,onAut
 }
 
 // ================================================================
-function AutoPanel({result,apid,staff,y,m,allSlots,weeks,slots,onApply,onClose,onJump}){
+function AutoPanel({result,apid,staff,y,m,allSlots,weeks,slots,patReqList,onApply,onClose,onJump}){
   const [at,setAt]=useState('patterns');
   const pats=result.patterns||[],gaps=result.gaps||[];
   const st=(k)=>({padding:'8px 14px',border:'none',background:'none',cursor:'pointer',fontSize:12,fontWeight:at===k?500:400,color:at===k?K.textI:K.textS,borderBottom:at===k?'2px solid '+K.textI:'2px solid transparent'});
@@ -4566,14 +4612,14 @@ function AutoPanel({result,apid,staff,y,m,allSlots,weeks,slots,onApply,onClose,o
         <button onClick={()=>setAt('gaps')} style={st('gaps')}>ギャップ提案{gaps.length>0&&<span style={{marginLeft:5,fontSize:10,background:K.bgW,color:K.textW,borderRadius:10,padding:'1px 5px'}}>{gaps.length}</span>}</button>
       </div>
       <div style={{padding:14}}>
-        {at==='patterns'&&(pats.length===0?<p style={{fontSize:13,color:K.textS}}>パターンを生成できませんでした。</p>:<div style={{display:'flex',gap:12,flexWrap:'wrap'}}>{pats.map(p=><PatCard key={p.id} p={p} isOn={apid===p.id} staff={staff} weeks={weeks} slots={slots} y={y} onApply={()=>onApply(p)}/>)}</div>)}
+        {at==='patterns'&&(pats.length===0?<p style={{fontSize:13,color:K.textS}}>パターンを生成できませんでした。</p>:<div style={{display:'flex',gap:12,flexWrap:'wrap'}}>{pats.map(p=><PatCard key={p.id} p={p} isOn={apid===p.id} staff={staff} weeks={weeks} slots={slots} y={y} patReqList={patReqList} onApply={()=>onApply(p)}/>)}</div>)}
         {at==='gaps'&&(gaps.length===0?<div style={{padding:'24px 0',textAlign:'center',color:K.textS,fontSize:13}}>全コマを条件内で埋めることができました。</div>:<GapSec gaps={gaps} staff={staff} m={m} y={y} allSlots={allSlots} onJump={onJump}/>)}
       </div>
     </div>
   );
 }
 
-function PatCard({p,isOn,staff,weeks,slots,y,onApply}){
+function PatCard({p,isOn,staff,weeks,slots,y,patReqList,onApply}){
   // p.assign のキーは "MM-DD" 形式 → "YYYY-MM-DD" 形式に変換してから制約適用
   const convertedAsgn={};
   Object.entries(p.assign||{}).forEach(([mmdd,sls])=>{
@@ -4595,6 +4641,19 @@ function PatCard({p,isOn,staff,weeks,slots,y,onApply}){
 
   const maxC=Math.max(1,...staff.map(s=>cnt[s.id]||0));
   const active=staff.filter(s=>(cnt[s.id]||0)>0||(cntRaw[s.id]||0)>0).sort((a,b)=>(cnt[b.id]||0)-(cnt[a.id]||0));
+
+  // ── このパターンを適用した場合の空き枠（未充足コマ）を算出 ──
+  // 必要人数に対し配置が足りないコマ数を集計（時間制約適用後の配置で判定）
+  let emptySlots=0, totalReq=0;
+  (patReqList||[]).forEach(({dk,reqBySlot})=>{
+    Object.entries(reqBySlot).forEach(([slotId,req])=>{
+      totalReq+=req;
+      const assigned=(enforcedAsgn[dk]?.[slotId]||[]).length;
+      if(assigned<req)emptySlots+=(req-assigned);
+    });
+  });
+  const filledRate=totalReq>0?Math.round((totalReq-emptySlots)/totalReq*100):100;
+
   return(
     <div style={{flex:'1 1 175px',minWidth:175,maxWidth:255,background:isOn?K.bgI:K.bgS,border:isOn?'2px solid '+K.textI:K.bd,borderRadius:K.rlg,padding:12}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
@@ -4602,8 +4661,20 @@ function PatCard({p,isOn,staff,weeks,slots,y,onApply}){
         {isOn&&<span style={{fontSize:10,color:K.textI,background:K.bg,border:K.bdI,borderRadius:10,padding:'1px 7px'}}>適用中</span>}
       </div>
       <p style={{fontSize:12,color:K.textS,lineHeight:1.5,marginBottom:6}}>{p.desc}</p>
+      {/* 空き枠（未充足コマ）数 */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:6,marginBottom:8,padding:'7px 9px',borderRadius:K.rmd,
+        background:emptySlots===0?K.bgG:emptySlots<=3?K.bgW:K.bgD,
+        border:emptySlots===0?K.bdG:emptySlots<=3?K.bdW:K.bdD}}>
+        <span style={{fontSize:11,fontWeight:500,color:emptySlots===0?K.textG:emptySlots<=3?K.textW:K.textD}}>
+          {emptySlots===0?'空き枠なし':'空き枠'}
+        </span>
+        <span style={{display:'flex',alignItems:'baseline',gap:3}}>
+          <span style={{fontSize:18,fontWeight:700,color:emptySlots===0?K.textG:emptySlots<=3?K.textW:K.textD}}>{emptySlots}</span>
+          <span style={{fontSize:11,color:emptySlots===0?K.textG:emptySlots<=3?K.textW:K.textD}}>コマ</span>
+        </span>
+      </div>
       <div style={{fontSize:10,color:K.textS,marginBottom:8,padding:'3px 6px',background:K.bgT,borderRadius:4}}>
-        ※ 時間制約適用後の実際のコマ数
+        ※ 時間制約適用後の実際のコマ数（充足率 {filledRate}%）
       </div>
       <div style={{marginBottom:10}}>
         {active.slice(0,6).map(s=>{
