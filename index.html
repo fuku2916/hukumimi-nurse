@@ -1070,6 +1070,19 @@ function App(){
   const [appMode,setAppMode]=useState('select'); // 'select'|'admin'|'staff'
   const [sbLoading,setSbLoading]=useState(false);
   const [sbStatus,setSbStatus]=useState(''); // ''|'ok'|'error'
+
+  // アプリ起動時（select画面）にSupabaseからスタッフデータだけ読み込む
+  React.useEffect(()=>{
+    if(!SB_ENABLED)return;
+    (async()=>{
+      try{
+        const sdR=await SB.getSafe('shift_data');
+        if(sdR.ok&&sdR.data&&sdR.data.staff){
+          setStaff(sdR.data.staff);
+        }
+      }catch(e){}
+    })();
+  },[]);
   // クラウド読み込みが成功するまで自動保存を止める安全装置（古いデータでクラウドを上書きしないため）
   const sbReadyRef=React.useRef(false);
   // ── 合言葉ログイン ──
