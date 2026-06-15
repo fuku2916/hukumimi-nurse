@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v39</title>
+<title>シフト管理 v40</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v39';
+const APP_VERSION = 'v40';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2853,11 +2853,25 @@ ${bodyHtml}
       const p=staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow);
       return !!(p&&p.s<=g1&&p.e>=g2);
     };
-    // sidがそのコマに有資格か（ベース登録 or 当月同曜日で担当実績）
+    // sidがそのコマに有資格か
+    //  ・外来(out)コマ: 特別なスキル不要 → 勤務可能な人は誰でも配置可（新規登録者も対象）
+    //  ・手術(surg)等: ベース登録 or 当月同曜日で担当実績がある人のみ（専門性を担保）
     const qualified=(dk,sid,slot,dow)=>{
+      if(slot.type==='out')return true;
       const inBase=['A','B'].some(p=>(((baseShift[p]||{})[dow]||{})[slot.id]||[]).includes(sid));
       if(inBase)return true;
       return dates.some(d2=>{const k2=tdk(d2);return d2.getDay()===dow&&k2!==dk&&(na[k2]?.[slot.id]||[]).includes(sid);});
+    };
+    // sがその曜日(dow)に勤務可能か（新規応援配置の安全弁）
+    //  ・勤務条件(cond.days)が設定されていればそれを信頼（UIで登録した人はこちら）
+    //  ・cond未設定の旧データは「ベース登録 or 当月同曜日の実績がある曜日」のみ可とみなす
+    const worksThisDay=(s,dow)=>{
+      if(!s)return false;
+      const c=s.cond;
+      if(c&&c.days&&Object.keys(c.days).length){ return c.days[dow]!==false; }
+      const inBaseAnyDow=['A','B'].some(p=>{const dd=(baseShift[p]||{})[dow]||{};return Object.values(dd).some(ids=>(ids||[]).includes(s.id));});
+      if(inBaseAnyDow)return true;
+      return dates.some(d2=>d2.getDay()===dow&&Object.values(na[tdk(d2)]||{}).some(ids=>(ids||[]).includes(s.id)));
     };
     // trial配置でsidが1日8h・週上限を超えないか
     const trialOK=(dk,sid,trial,week)=>{
@@ -2900,7 +2914,7 @@ ${bodyHtml}
           // ② その日まだ未出勤の有資格者を新規配置（応援出勤）
           const working=sid=>Object.values(na[dk]||{}).some(ids=>(ids||[]).includes(sid));
           const fresh=staff.find(s=>
-            !working(s.id)&&!isOffOrExcl(dk,B.id,s.id)&&
+            !working(s.id)&&!isOffOrExcl(dk,B.id,s.id)&&worksThisDay(s,dow)&&
             qualified(dk,s.id,B,dow)&&canCoverBand(s.id,B,dow,gap.s,gap.e)&&
             trialOK(dk,s.id,{...na,[dk]:{...na[dk],[B.id]:[...(na[dk][B.id]||[]),s.id]}},week));
           if(fresh){na[dk][B.id]=[...(na[dk][B.id]||[]),fresh.id];filled=true;continue;}
