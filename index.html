@@ -148,6 +148,30 @@ function canCoverSlot(s,slot,dow){
   var dur=r.e-r.s; if(dur<=0)return true;
   return slotCoveredMinutes(s,slot,dow) >= dur*0.5;
 }
+// そのスタッフがそのコマ(その曜日)で実際に在席できる時間帯 {s,e}（出勤開始/退勤制限を反映）。在席不可ならnull
+function staffPresenceInSlot(s,slot,dow){
+  var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return null;
+  var a=r.s, b=r.e;
+  var st=staffStartMin(s,dow), lv=staffEndMin(s,dow);
+  if(st!=null&&st>a)a=st;
+  if(lv!=null&&lv<b)b=lv;
+  if(b<=a)return null;
+  return {s:a,e:b};
+}
+// 在席時間帯の配列から、コマ範囲r内で在席者が0名になる「最初の無人帯」{s,e}を返す。無人帯がなければnull。
+function firstUncoveredBand(r,intervals){
+  if(!r||r.s==null||r.e==null)return null;
+  var iv=(intervals||[]).filter(function(x){return x&&x.s!=null&&x.e!=null&&x.e>x.s;}).slice().sort(function(a,b){return a.s-b.s;});
+  var cur=r.s;
+  for(var i=0;i<iv.length;i++){
+    var x=iv[i];
+    if(x.s>cur)return {s:cur,e:Math.min(x.s,r.e)};
+    if(x.e>cur)cur=x.e;
+    if(cur>=r.e)return null;
+  }
+  if(cur<r.e)return {s:cur,e:r.e};
+  return null;
+}
 
 // 日時スタンプ整形（作成日時表示用）"2026/7/4 14:30"
 function fmtStamp(iso){
@@ -675,6 +699,14 @@ ${hourConstraints||'  （時間制約の設定なし）'}
 ━━ 労働基準法（第32条）の制約━━
   1日8時間・週40時間が上限。必ず守ること。
   1日複数コマの上限例: am_out+pm2=7.0h OK / am_out+pm1+pm2=9.0h → 違反
+━━ 【最重要】時間帯の連続カバー（無人禁止）━━
+  各コマは「開始時刻〜終了時刻」まで途切れなく最低1名が在席している必要があります。
+  「○時まで勤務可能」のスタッフは、その時刻以降は在席できません（コマ終了まではカバーできない）。
+  ・違反例: 夜外来(終了19:45)に「18時まで」の人だけを配置 → 18:00〜19:45が無人(0名)になり不可。
+  ・各コマには、コマ終了時刻まで在席できる人を最低1名は必ず含めること。
+  ・終了まで在席できる人が他コマで「定員ちょうど/余剰」の場合は、そのコマを1名減らしてでも、
+    無人帯のあるコマへ移して連続カバーを優先すること（無人(0名)にするより、他コマの定員割れの方が良い）。
+  ・同様に、出勤開始が遅い人だけのコマは開始時刻直後が無人になり得る点にも注意。
 ━━ コマ定義（曜日/slot_id/時間帯）━━
 ${slotDefDesc}
 ━━ 各コマの必要人数（目標）━━
@@ -1070,19 +1102,6 @@ function App(){
   const [appMode,setAppMode]=useState('select'); // 'select'|'admin'|'staff'
   const [sbLoading,setSbLoading]=useState(false);
   const [sbStatus,setSbStatus]=useState(''); // ''|'ok'|'error'
-
-  // アプリ起動時（select画面）にSupabaseからスタッフデータだけ読み込む
-  React.useEffect(()=>{
-    if(!SB_ENABLED)return;
-    (async()=>{
-      try{
-        const sdR=await SB.getSafe('shift_data');
-        if(sdR.ok&&sdR.data&&sdR.data.staff){
-          setStaff(sdR.data.staff);
-        }
-      }catch(e){}
-    })();
-  },[]);
   // クラウド読み込みが成功するまで自動保存を止める安全装置（古いデータでクラウドを上書きしないため）
   const sbReadyRef=React.useRef(false);
   // ── 合言葉ログイン ──
@@ -2657,6 +2676,7 @@ ${bodyHtml}
     na=fillFulltimeMinHours(na); // ④
     na=ensureMinSlots(na);       // ④
     na=ensureBaseCoverage(na);   // ⑤ 念のための最終保証
+    na=fixCoverageGaps(na);      // ⑥ 時間帯の無人(0名)を解消（早退者だけのコマを補修）
     return na;
   }
 
@@ -2805,6 +2825,112 @@ ${bodyHtml}
     });
     return na;
   }
+  // ── 時間帯の無人(0名)を解消する ──
+  // 各コマは開始〜終了まで途切れなく最低1名が在席している必要がある。
+  // 「18時まで」など早退する人だけが入っていると、コマ終了まで在席できず
+  // 終盤が無人(0名)になる。これを検出し、その時間帯をカバーできる人を配置する。
+  // 優先順位: ①同種コマの余剰枠から移動 → ②その日まだ未出勤の有資格者を新規配置
+  //           → ③同種コマの定員ちょうどの枠から移動（移動元が無人にならない範囲で定員割れを許容）
+  //           （無人(0名)にするより、他コマの定員割れの方が良い、という方針）
+  function fixCoverageGaps(rawAsgn){
+    const na={};
+    Object.entries(rawAsgn||{}).forEach(([dk,sm])=>{na[dk]={};Object.entries(sm).forEach(([slotId,ids])=>{na[dk][slotId]=[...(ids||[])];});});
+    const isOffOrExcl=(dk,slotId,sid)=>{
+      if((manualExclusions[dk]?.[slotId]||[]).includes(sid))return true;
+      const tc=tmps[dk]?.[String(sid)];
+      return !!(tc&&['off','paid','paid_am','paid_pm'].includes(tc.type));
+    };
+    const activeIds=(dk,slotId)=>(na[dk]?.[slotId]||[]).filter(sid=>!isOffOrExcl(dk,slotId,sid));
+    const activeCount=(dk,slotId)=>activeIds(dk,slotId).length;
+    // コマslot(曜日dow)の現在の無人帯（最初の1つ）。なければnull
+    const gapOf=(dk,slot,dow)=>{
+      const r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return null;
+      const iv=activeIds(dk,slot.id).map(sid=>staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow)).filter(Boolean);
+      return firstUncoveredBand(r,iv);
+    };
+    // sidが帯[g1,g2]を丸ごとカバーできるか（コマ範囲内・出勤開始/退勤を考慮）
+    const canCoverBand=(sid,slot,dow,g1,g2)=>{
+      const p=staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow);
+      return !!(p&&p.s<=g1&&p.e>=g2);
+    };
+    // sidがそのコマに有資格か（ベース登録 or 当月同曜日で担当実績）
+    const qualified=(dk,sid,slot,dow)=>{
+      const inBase=['A','B'].some(p=>(((baseShift[p]||{})[dow]||{})[slot.id]||[]).includes(sid));
+      if(inBase)return true;
+      return dates.some(d2=>{const k2=tdk(d2);return d2.getDay()===dow&&k2!==dk&&(na[k2]?.[slot.id]||[]).includes(sid);});
+    };
+    // trial配置でsidが1日8h・週上限を超えないか
+    const trialOK=(dk,sid,trial,week)=>{
+      if(dayHours(dk,sid,trial,manualExclusions,slots,staff)>DAILY_LIMIT)return false;
+      const s=staff.find(x=>x.id===sid); const wh=parseWeeklyHours(s&&s.notes);
+      if(wh&&wh.max>0&&week&&week.length>0){
+        const wkH=week.reduce((sum,d3)=>sum+dayHours(tdk(d3),sid,trial,manualExclusions,slots,staff),0);
+        if(wkH>Math.min(wh.max,WEEKLY_LIMIT))return false;
+      }
+      return true;
+    };
+    dates.forEach(d=>{
+      const dk=tdk(d); if(isClosedDay(dk)||!na[dk])return;
+      const dow=d.getDay();
+      const week=weeks.find(w=>w.some(x=>tdk(x)===dk))||[];
+      const daySlots=slots[dow]||[];
+      daySlots.forEach(B=>{
+        if(getReq(dk,B.id)<=0)return; // 配置不要のコマは対象外
+        let guard=0;
+        while(guard++<8){
+          const gap=gapOf(dk,B,dow);
+          if(!gap)break;
+          let filled=false;
+          // ① 同種コマの余剰枠から移動
+          for(const A of daySlots){
+            if(A.id===B.id||A.type!==B.type)continue;
+            if(activeCount(dk,A.id)<=getReq(dk,A.id))continue; // 余剰がなければ動かさない
+            const cand=activeIds(dk,A.id).find(sid=>
+              !(na[dk][B.id]||[]).includes(sid)&&canCoverBand(sid,B,dow,gap.s,gap.e));
+            if(cand!=null){
+              const trial={...na,[dk]:{...na[dk],
+                [A.id]:(na[dk][A.id]||[]).filter(x=>x!==cand),
+                [B.id]:[...(na[dk][B.id]||[]),cand]}};
+              if(trialOK(dk,cand,trial,week)){
+                na[dk][A.id]=trial[dk][A.id];na[dk][B.id]=trial[dk][B.id];filled=true;break;
+              }
+            }
+          }
+          if(filled)continue;
+          // ② その日まだ未出勤の有資格者を新規配置（応援出勤）
+          const working=sid=>Object.values(na[dk]||{}).some(ids=>(ids||[]).includes(sid));
+          const fresh=staff.find(s=>
+            !working(s.id)&&!isOffOrExcl(dk,B.id,s.id)&&
+            qualified(dk,s.id,B,dow)&&canCoverBand(s.id,B,dow,gap.s,gap.e)&&
+            trialOK(dk,s.id,{...na,[dk]:{...na[dk],[B.id]:[...(na[dk][B.id]||[]),s.id]}},week));
+          if(fresh){na[dk][B.id]=[...(na[dk][B.id]||[]),fresh.id];filled=true;continue;}
+          // ③ 同種コマの定員ちょうどの枠から移動（移動元が無人にならない範囲で定員割れを許容）
+          for(const A of daySlots){
+            if(A.id===B.id||A.type!==B.type)continue;
+            if(activeCount(dk,A.id)<=1)continue; // 移動元を0名にしない
+            const cand=activeIds(dk,A.id).find(sid=>{
+              if((na[dk][B.id]||[]).includes(sid))return false;
+              if(!canCoverBand(sid,B,dow,gap.s,gap.e))return false;
+              // 移動後もAに無人帯が生まれないこと
+              const restIv=activeIds(dk,A.id).filter(x=>x!==sid)
+                .map(x=>staffPresenceInSlot(staff.find(z=>z.id===x),A,dow)).filter(Boolean);
+              if(firstUncoveredBand(slotRangeMin(A),restIv))return false;
+              const trial={...na,[dk]:{...na[dk],
+                [A.id]:(na[dk][A.id]||[]).filter(x=>x!==sid),
+                [B.id]:[...(na[dk][B.id]||[]),sid]}};
+              return trialOK(dk,sid,trial,week);
+            });
+            if(cand!=null){
+              na[dk][A.id]=(na[dk][A.id]||[]).filter(x=>x!==cand);
+              na[dk][B.id]=[...(na[dk][B.id]||[]),cand];filled=true;break;
+            }
+          }
+          if(!filled)break; // 解消できる人がいない → そのまま（gapsで別途報告）
+        }
+      });
+    });
+    return na;
+  }
   // ── 拘束時間の最小化（コマ入れ替え最適化 / 2-opt）──
   // 同じ人に時間が離れたコマ（例：午前＋夜）が割り当たると拘束時間（最初〜最後の幅）が
   // 伸びて残業になる。これを「2人のコマを交換」して各人の span 合計が縮むなら入れ替える。
@@ -2909,8 +3035,8 @@ ${bodyHtml}
   }
   function applyOvertimeRelief(){
     const beforeAsgn=asgn;
-    // ①勤務不可/半分も出られないコマから除去 → ②偏り調整 → ③超過勤務の調整（トリム＋延長）
-    const fixed=relieveDailyOvertime(rebalanceDayCoverage(dropPoorCoverage(asgn)));
+    // ①勤務不可/半分も出られないコマから除去 → ②偏り調整 → ③超過勤務の調整（トリム＋延長）→ ④時間帯の無人(0名)を解消
+    const fixed=fixCoverageGaps(relieveDailyOvertime(rebalanceDayCoverage(dropPoorCoverage(asgn))));
     // 変更点の差分を作成（コマ単位で 外れた人／入った人）
     const nameOf=id=>(staff.find(s=>s.id===id)||{}).name||('ID'+id);
     const changes=[];
@@ -2928,13 +3054,13 @@ ${bodyHtml}
         }
       });
     });
-    if(changes.length===0){alert('調整対象（配置の偏り・8時間超）はありませんでした。');return;}
+    if(changes.length===0){alert('調整対象（無人時間帯・配置の偏り・8時間超）はありませんでした。');return;}
     setPreReliefAsgn(beforeAsgn);
     setReliefChanges(changes);
     setAsgn(fixed);
     let over=0;
     dates.forEach(d=>{const dk=tdk(d);if(isClosedDay(dk))return;staff.forEach(s=>{if(dayHours(dk,s.id,fixed,manualExclusions,slots,staff)>DAILY_LIMIT)over++;});});
-    alert('超過勤務の自動調整を行いました（変更 '+changes.length+'件）。\n変更点は表の上に一覧表示され、追加された人には ✦ が付きます。\n「元に戻す」で取り消せます。'+(over>0?'\n\n※まだ解消できない超過が'+over+'件あります（延長できる人がいない枠）。':''));
+    alert('配置の自動調整を行いました（無人時間帯の解消・偏り・超過勤務／変更 '+changes.length+'件）。\n変更点は表の上に一覧表示され、追加された人には ✦ が付きます。\n「元に戻す」で取り消せます。'+(over>0?'\n\n※まだ解消できない超過が'+over+'件あります（延長できる人がいない枠）。':''));
   }
   function undoOvertimeRelief(){
     if(preReliefAsgn==null)return;
@@ -3688,7 +3814,7 @@ ${bodyHtml}
                 </button>
               )}
               <button onClick={applyOvertimeRelief} title="①余剰枠→不足枠へ配置を均す ②8時間超の人を末尾コマから外し空いた枠を延長で補う"
-                style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（偏り・超過）</button>
+                style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #D85A30',background:'#FFF7ED',color:'#9A3412',whiteSpace:'nowrap'}}>⚖ 配置を自動調整（無人帯・偏り・超過）</button>
               <button onClick={applySpanCompaction} title="同じ人に時間が離れたコマ（午前＋夜など）が割り当たって拘束時間が伸びている所を、同種コマ間で2人を入れ替えて勤務が連続するよう短縮します。出勤者と各人の勤務時間は変わりません（座る外来コマが入れ替わるだけ）。有給・希望休・除外した駒は動かしません。変更点はプレビュー表示され、元に戻せます。"
                 style={{padding:'5px 12px',borderRadius:K.rmd,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid #2563EB',background:'#EFF6FF',color:'#1E40AF',whiteSpace:'nowrap'}}>⏱ 拘束時間を最適化</button>
               {preReliefAsgn!=null&&(
