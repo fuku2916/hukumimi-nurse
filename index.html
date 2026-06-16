@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v42</title>
+<title>シフト管理 v43</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v42';
+const APP_VERSION = 'v43';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -738,18 +738,25 @@ JSONのみで回答（前置き・コードブロック不要）:
 {"patterns":[{"id":"A","name":"パターンA","desc":"...","assign":{"MM-DD":{"slot_id":[staff_id]}}}],"gaps":[{"date":"MM-DD","dow":"曜","slot_id":"...","slot_label":"...","reason":"...","candidates":[{"id":0,"name":"...","ask":"..."}]}]}`;
   const headers={'Content-Type':'application/json'};
   if(apiKey&&apiKey.trim()){headers['x-api-key']=apiKey.trim();headers['anthropic-version']='2023-06-01';headers['anthropic-dangerous-direct-browser-access']='true';}
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:8000,messages:[{role:'user',content:prompt}]})});
+  // assistantを "{" でプリフィルし、前置き文を出させずJSONから始めさせる（新しいモデルの「考えながら書く」前置き対策）
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:16000,messages:[{role:'user',content:prompt},{role:'assistant',content:'{'}]})});
   const data=await r.json();
   if(r.status===401||r.status===403)throw new Error('AUTH_ERROR');
   if(!r.ok)throw new Error(data.error?.message||'APIエラー('+r.status+')');
-  const text=(data.content||[]).find(c=>c.type==='text')?.text||'';
-  const clean=text.replace(/```json|```/g,'').trim();
-  try{return JSON.parse(clean);}
-  catch(e){
-    const fixed=clean.endsWith('}}')?clean:clean.replace(/,?\s*\{[^}]*$|,?\s*"[^"]*$|,?\s*\[.*$/,'');
-    try{return JSON.parse(fixed+'}]}');}
-    catch(e2){throw new Error('レスポンスのJSON解析に失敗しました。再度お試しください。（detail: '+clean.slice(0,100)+'...）');}
-  }
+  let raw=(data.content||[]).find(c=>c.type==='text')?.text||'';
+  raw=raw.replace(/```json|```/g,' ');
+  // プリフィルの "{" の続きが返るので先頭に補完。前置き/末尾の余計な文字に強いよう複数パターンで解析を試みる。
+  const cands=[];
+  cands.push('{'+raw);                                                   // プリフィル前提（前置きなし・末尾もきれい）
+  { const t='{'+raw, l=t.lastIndexOf('}'); if(l>0)cands.push(t.slice(0,l+1)); }  // 末尾の余計な文章を切る
+  { const f=raw.indexOf('{'), l=raw.lastIndexOf('}'); if(f>=0&&l>f)cands.push(raw.slice(f,l+1)); } // 前置きありの素応答から本体抽出
+  cands.push(raw);
+  for(const c of cands){ try{ return JSON.parse(c.trim()); }catch(_e){} }
+  // 途中で切れた場合の簡易修復
+  const clean=('{'+raw).trim();
+  const fixed=clean.endsWith('}}')?clean:clean.replace(/,?\s*\{[^}]*$|,?\s*"[^"]*$|,?\s*\[.*$/,'');
+  try{return JSON.parse(fixed+'}]}');}
+  catch(e2){throw new Error('レスポンスのJSON解析に失敗しました。再度お試しください。（detail: '+clean.slice(0,120)+'...）');}
 }
 
 // ================================================================
