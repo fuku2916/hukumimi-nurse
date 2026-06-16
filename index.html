@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v41</title>
+<title>シフト管理 v42</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v41';
+const APP_VERSION = 'v42';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -738,7 +738,7 @@ JSONのみで回答（前置き・コードブロック不要）:
 {"patterns":[{"id":"A","name":"パターンA","desc":"...","assign":{"MM-DD":{"slot_id":[staff_id]}}}],"gaps":[{"date":"MM-DD","dow":"曜","slot_id":"...","slot_label":"...","reason":"...","candidates":[{"id":0,"name":"...","ask":"..."}]}]}`;
   const headers={'Content-Type':'application/json'};
   if(apiKey&&apiKey.trim()){headers['x-api-key']=apiKey.trim();headers['anthropic-version']='2023-06-01';headers['anthropic-dangerous-direct-browser-access']='true';}
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:8000,messages:[{role:'user',content:prompt}]})});
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:8000,messages:[{role:'user',content:prompt}]})});
   const data=await r.json();
   if(r.status===401||r.status===403)throw new Error('AUTH_ERROR');
   if(!r.ok)throw new Error(data.error?.message||'APIエラー('+r.status+')');
