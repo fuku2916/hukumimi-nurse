@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v43</title>
+<title>シフト管理 v44</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v43';
+const APP_VERSION = 'v44';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -734,29 +734,38 @@ ${closedDesc}
   パターンA: 全員の制約（週間時間含む）を最大限守った配置
   パターンB: スタッフ間のコマ数をできるだけ均等に配分
   パターンC: 夜間コマ担当を特定スタッフに集中させ他の夜間負担を軽減
-JSONのみで回答（前置き・コードブロック不要）:
+【出力形式・厳守】返答は次のJSONオブジェクトだけにすること。最初の文字は「{」、最後の文字は「}」。前置き・説明・思考過程・コードブロック(\`\`\`)は一切書かない。
 {"patterns":[{"id":"A","name":"パターンA","desc":"...","assign":{"MM-DD":{"slot_id":[staff_id]}}}],"gaps":[{"date":"MM-DD","dow":"曜","slot_id":"...","slot_label":"...","reason":"...","candidates":[{"id":0,"name":"...","ask":"..."}]}]}`;
   const headers={'Content-Type':'application/json'};
   if(apiKey&&apiKey.trim()){headers['x-api-key']=apiKey.trim();headers['anthropic-version']='2023-06-01';headers['anthropic-dangerous-direct-browser-access']='true';}
-  // assistantを "{" でプリフィルし、前置き文を出させずJSONから始めさせる（新しいモデルの「考えながら書く」前置き対策）
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:16000,messages:[{role:'user',content:prompt},{role:'assistant',content:'{'}]})});
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:16000,messages:[{role:'user',content:prompt}]})});
   const data=await r.json();
   if(r.status===401||r.status===403)throw new Error('AUTH_ERROR');
   if(!r.ok)throw new Error(data.error?.message||'APIエラー('+r.status+')');
-  let raw=(data.content||[]).find(c=>c.type==='text')?.text||'';
+  let raw=(data.content||[]).map(c=>c.type==='text'?c.text:'').join('').trim();
   raw=raw.replace(/```json|```/g,' ');
-  // プリフィルの "{" の続きが返るので先頭に補完。前置き/末尾の余計な文字に強いよう複数パターンで解析を試みる。
-  const cands=[];
-  cands.push('{'+raw);                                                   // プリフィル前提（前置きなし・末尾もきれい）
-  { const t='{'+raw, l=t.lastIndexOf('}'); if(l>0)cands.push(t.slice(0,l+1)); }  // 末尾の余計な文章を切る
-  { const f=raw.indexOf('{'), l=raw.lastIndexOf('}'); if(f>=0&&l>f)cands.push(raw.slice(f,l+1)); } // 前置きありの素応答から本体抽出
-  cands.push(raw);
-  for(const c of cands){ try{ return JSON.parse(c.trim()); }catch(_e){} }
-  // 途中で切れた場合の簡易修復
-  const clean=('{'+raw).trim();
-  const fixed=clean.endsWith('}}')?clean:clean.replace(/,?\s*\{[^}]*$|,?\s*"[^"]*$|,?\s*\[.*$/,'');
-  try{return JSON.parse(fixed+'}]}');}
-  catch(e2){throw new Error('レスポンスのJSON解析に失敗しました。再度お試しください。（detail: '+clean.slice(0,120)+'...）');}
+  // 前置き文があってもJSON本体だけを取り出す（最初の「{」から、括弧の対応で閉じる「}」まで。文字列内の{}や引用符は無視）
+  const extractObj=(s)=>{
+    const i=s.indexOf('{'); if(i<0)return null;
+    let depth=0,inStr=false,esc=false;
+    for(let j=i;j<s.length;j++){
+      const ch=s[j];
+      if(inStr){ if(esc)esc=false; else if(ch==='\\')esc=true; else if(ch==='"')inStr=false; }
+      else if(ch==='"')inStr=true;
+      else if(ch==='{')depth++;
+      else if(ch==='}'){ if(--depth===0)return s.slice(i,j+1); }
+    }
+    return s.slice(i); // 閉じ切らない（応答が途中で切れた）場合は最初の「{」以降を返す
+  };
+  const body=extractObj(raw)||raw;
+  try{return JSON.parse(body);}
+  catch(e){
+    // 途中で切れた場合の簡易修復
+    const clean=body.trim();
+    const fixed=clean.endsWith('}}')?clean:clean.replace(/,?\s*\{[^}]*$|,?\s*"[^"]*$|,?\s*\[.*$/,'');
+    try{return JSON.parse(fixed+'}]}');}
+    catch(e2){throw new Error('レスポンスのJSON解析に失敗しました。再度お試しください。（detail: '+clean.slice(0,120)+'...）');}
+  }
 }
 
 // ================================================================
