@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v52</title>
+<title>シフト管理 v53</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v52';
+const APP_VERSION = 'v53';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1232,9 +1232,11 @@ function App(){
     })();
   },[appMode]);
 
-  // Supabaseからデータ読み込み（スタッフモード起動時）
+  // Supabaseからデータ読み込み（スタッフ一覧画面・スタッフモード起動時）
+  // ※ staff_login（名前・PIN選択画面）でも読み込む。これがないと、一度管理者画面に
+  //   入るまで端末内の初期データ（PIN空）が表示され、全員「PIN未設定」になってしまう。
   React.useEffect(()=>{
-    if(appMode!=='staff'||!SB_ENABLED)return;
+    if((appMode!=='staff'&&appMode!=='staff_login')||!SB_ENABLED)return;
     setSbLoading(true);
     (async()=>{
       try{
