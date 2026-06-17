@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v48</title>
+<title>シフト管理 v50</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v48';
+const APP_VERSION = 'v50';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -174,6 +174,15 @@ function staffWorksDow(s,dow){
 function staffEligibleForSlot(s,slot,dow){
   return staffWorksDow(s,dow) && canCoverSlot(s,slot,dow);
 }
+// スキル（担当可能なコマ種別）を勤務条件メモから判定: 'out'=外来のみ / 'surg'=手術のみ / 'both'=両方
+function staffSkill(s){
+  if(!s)return 'both';
+  var t=((s.notes||'')+' '+(s.memo||'')).replace(/[\s　]/g,'');
+  if(/手術のみ/.test(t))return 'surg';
+  if(/外来のみ/.test(t))return 'out';
+  return 'both';
+}
+function skillLabel(sk){return sk==='surg'?'手術のみ':sk==='out'?'外来のみ':'外来・手術可';}
 // そのスタッフがそのコマ(その曜日)で実際に在席できる時間帯 {s,e}（出勤開始/退勤制限を反映）。在席不可ならnull
 function staffPresenceInSlot(s,slot,dow,da){
   var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return null;
@@ -1407,6 +1416,7 @@ function App(){
   const [showKeyPanel,setShowKeyPanel]=useState(false);
   const [showHoursPanel,setShowHoursPanel]=useState(false);
   const [showReportPanel,setShowReportPanel]=useState(false);
+  const [showStaffCheck,setShowStaffCheck]=useState(false);
   const [keyInput,setKeyInput]=useState('');
   const [weeklyReq,setWeeklyReq]=useState(()=>saved?.weeklyReq||WEEKLY_REQ_DEFAULT);
   const [monthlyReq,setMonthlyReq]=useState(()=>saved?.monthlyReq||{});
@@ -3790,6 +3800,7 @@ ${bodyHtml}
                     <MenuDivider/>
                     <MenuItem icon="⏱" label="勤務時間集計" onClick={()=>{setShowHoursPanel(p=>!p);setOpenMenu(null);}} active={showHoursPanel}/>
                     <MenuItem icon="📊" label="達成レポート" onClick={()=>{setShowReportPanel(p=>!p);setOpenMenu(null);}} active={showReportPanel}/>
+                    <MenuItem icon="👤" label="スタッフごとのチェック" onClick={()=>{setShowStaffCheck(p=>!p);setOpenMenu(null);}} active={showStaffCheck}/>
                   </>}
 
                   {/* 出力メニュー */}
@@ -3834,6 +3845,7 @@ ${bodyHtml}
               <MenuLabel text="シフト設計"/>
               <MenuItem icon="📅" label="シフト表" onClick={()=>{setTab('shift');setOpenMenu(null);}} active={tab==='shift'}/>
               <MenuItem icon="🤖" label={aLoad?'生成中...':'自動シフト作成'} onClick={()=>{if(!aLoad){doAuto();setOpenMenu(null);}}}/>
+              <MenuItem icon="👤" label="スタッフごとのチェック" onClick={()=>{setShowStaffCheck(p=>!p);setOpenMenu(null);}} active={showStaffCheck}/>
               <MenuDivider/>
               <MenuLabel text="出力"/>
               <MenuItem icon="🖨" label="カレンダーPDF" onClick={()=>{exportPDF();setOpenMenu(null);}}/>
@@ -3966,6 +3978,7 @@ ${bodyHtml}
 
           {showHoursPanel&&<HoursPanel staff={staff} weeks={weeks} dates={dates} asgn={asgn} manualExclusions={manualExclusions} slots={slots} onClose={()=>setShowHoursPanel(false)} onAutoFill={autoFillHours}/>}
           {showReportPanel&&<ReportPanel reports={generateReport()} y={y} m={m} onClose={()=>setShowReportPanel(false)} onExportPDF={exportReportPDF}/>}
+          {showStaffCheck&&<StaffCheckPanel staff={staff} dates={dates} asgn={asgn} manualExclusions={manualExclusions} tmps={tmps} slots={slots} weeks={weeks} y={y} m={m} onClose={()=>setShowStaffCheck(false)}/>}
           {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} finalizeAsgn={finalizeAsgn} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
 
           {/* バックアップ履歴パネル */}
@@ -5616,6 +5629,131 @@ function ReportPanel({reports,y,m,onClose,onExportPDF}){
 // ================================================================
 // 勤務時間集計パネル
 // ================================================================
+// ── スタッフごとの勤務チェック（勤務条件との適合＋日別の出退勤・休憩・実働） ──
+function StaffCheckPanel({staff,dates,asgn,manualExclusions,tmps,slots,weeks,y,m,onClose}){
+  const AM_OFF=['am_out','am_surg','surg'], PM_OFF=['pm_surg','pm_out','pm1','pm2'];
+  // 労基法 第34条：労働時間が6時間超→45分、8時間超→60分、それ以下→0（拘束時間を目安に判定）
+  const legalBreak=(span)=> span>480?60 : span>360?45 : 0;
+  function buildDay(s,d){
+    const dk=tdk(d),dow=d.getDay(),da=asgn[dk]||{},dExcl=manualExclusions[dk]||{};
+    const tc=tmps[dk]?.[String(s.id)];
+    if(tc&&['off','paid'].includes(tc.type))return null; // 終日休/有給
+    const assigned=(slots[dow]||[]).filter(slot=>{
+      if(!(da[slot.id]||[]).includes(s.id))return false;
+      if((dExcl[slot.id]||[]).includes(s.id))return false;
+      if(tc&&tc.type==='paid_am'&&AM_OFF.includes(slot.id))return false;
+      if(tc&&tc.type==='paid_pm'&&PM_OFF.includes(slot.id))return false;
+      return true;
+    });
+    if(assigned.length===0)return null;
+    const rs=assigned.map(sl=>slotRangeMin(sl)).filter(r=>r&&r.s!=null&&r.e!=null);
+    if(rs.length===0)return null;
+    let start=Math.min.apply(null,rs.map(r=>r.s)), end=Math.max.apply(null,rs.map(r=>r.e));
+    const lv=effEndMin(s,dow,da); if(lv!=null&&lv<end)end=lv;
+    const span=Math.max(0,end-start), brk=legalBreak(span), work=Math.max(0,span-brk);
+    const issues=[];
+    if(!staffWorksDow(s,dow))issues.push('勤務不可の曜日に配置');
+    const cs=staffStartMin(s,dow), ce=staffEndMin(s,dow);
+    if(cs!=null&&start<cs)issues.push('出勤'+fmtHM(start)+'が条件('+fmtHM(cs)+'〜)より早い');
+    if(ce!=null&&end>ce)issues.push('退勤'+fmtHM(end)+'が条件(〜'+fmtHM(ce)+')より遅い');
+    if(work>480)issues.push('実働8時間超');
+    // スキル別チェック：外来のみ→手術コマ不可 / 手術のみ→外来コマ不可
+    const sk=staffSkill(s);
+    if(sk==='out'){const ng=assigned.filter(sl=>sl.type==='surg'); if(ng.length)issues.push('外来のみだが手術コマに配置('+ng.map(sl=>sl.label).join('・')+')');}
+    if(sk==='surg'){const ng=assigned.filter(sl=>sl.type==='out'); if(ng.length)issues.push('手術のみだが外来コマに配置('+ng.map(sl=>sl.label).join('・')+')');}
+    return {dk,d,dow,assigned,start,end,span,brk,work,issues};
+  }
+  const reports=staff.map(s=>{
+    const wh=parseWeeklyHours(s.notes);
+    const days=[]; dates.forEach(d=>{const r=buildDay(s,d); if(r)days.push(r);});
+    const weekWork=weeks.map(wk=>{const set=new Set(wk.map(tdk));return days.filter(x=>set.has(x.dk)).reduce((a,x)=>a+x.work,0);});
+    const monthWork=days.reduce((a,x)=>a+x.work,0);
+    const dayIssues=days.filter(x=>x.issues.length>0);
+    const weekFlags=[];
+    weeks.forEach((wk,i)=>{ const h=weekWork[i]/60; if(weekWork[i]<=0)return;
+      if(wh&&wh.min>0&&h<wh.min-0.01)weekFlags.push('第'+(i+1)+'週 '+h.toFixed(1)+'h（最低'+wh.min+'h未満）');
+      if(wh&&wh.max<40&&h>wh.max+0.01)weekFlags.push('第'+(i+1)+'週 '+h.toFixed(1)+'h（上限'+wh.max+'h超）');
+      if(h>40.01)weekFlags.push('第'+(i+1)+'週 '+h.toFixed(1)+'h（週40h超）');
+    });
+    const ok=dayIssues.length===0&&weekFlags.length===0;
+    return {s,wh,days,weekWork,monthWork,dayIssues,weekFlags,ok};
+  });
+  const fmtH=min=>(min/60).toFixed(1);
+  const slotNames=arr=>arr.map(sl=>sl.label).join('・');
+  const condStr=s=>{const wh=parseWeeklyHours(s.notes);return [skillLabel(staffSkill(s)),wh&&wh.min>0?'週'+wh.min+'h以上':null,wh&&wh.max<40?'週'+wh.max+'h以内':null].filter(Boolean).join(' / ');};
+  function printReport(){
+    const w=window.open('','_blank','width=920,height=1000'); if(!w)return;
+    let h='<!doctype html><html><head><meta charset="utf-8"><title>スタッフ別勤務チェック '+y+'-'+m+'</title>';
+    h+='<style>body{font-family:-apple-system,Segoe UI,Hiragino Sans,sans-serif;padding:20px;color:#111}h1{font-size:18px}h2{font-size:14px;margin:16px 0 3px;border-bottom:2px solid #333;padding-bottom:2px}.cond{font-size:12px;color:#333;margin:2px 0 5px}table{border-collapse:collapse;width:100%;font-size:11px;margin-bottom:6px}th,td{border:1px solid #888;padding:3px 5px;text-align:center}th{background:#eee}.l{text-align:left}.ng{color:#b00;font-weight:bold}.ok{color:#157347;font-weight:bold}@media print{.np{display:none}}</style></head><body>';
+    h+='<button class="np" onclick="window.print()" style="position:fixed;top:8px;right:8px;padding:8px 14px;font-size:14px;font-weight:700;background:#185FA5;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 印刷</button>';
+    h+='<h1>スタッフ別 勤務チェック（'+y+'年'+m+'月）</h1>';
+    h+='<div class=cond>休憩は労働基準法に準拠（労働6時間超で45分、8時間超で60分）。拘束＝出勤〜退勤、実働＝拘束−休憩。</div>';
+    reports.forEach(r=>{
+      h+='<h2>'+r.s.name+'　'+(r.ok?'<span class=ok>✓ 条件適合</span>':'<span class=ng>⚠ 要確認</span>')+'</h2>';
+      h+='<div class=cond>勤務条件: '+condStr(r.s)+'　／　月間実働 '+fmtH(r.monthWork)+'h（'+r.days.length+'日）</div>';
+      if(!r.ok){ h+='<div class=cond ng>';
+        r.weekFlags.forEach(f=>h+='⚠ '+f+'<br>');
+        r.dayIssues.forEach(x=>h+='⚠ '+(x.d.getMonth()+1)+'/'+x.d.getDate()+'：'+x.issues.join('、')+'<br>');
+        h+='</div>'; }
+      h+='<table><tr><th>日付</th><th class=l>担当</th><th>出勤〜退勤</th><th>拘束</th><th>休憩</th><th>実働</th><th class=l>備考</th></tr>';
+      r.days.forEach(x=>{ h+='<tr><td>'+(x.d.getMonth()+1)+'/'+x.d.getDate()+'('+DAY_JP[x.dow]+')</td><td class=l>'+slotNames(x.assigned)+'</td><td>'+fmtHM(x.start)+'〜'+fmtHM(x.end)+'</td><td>'+fmtH(x.span)+'h</td><td>'+(x.brk?x.brk+'分':'なし')+'</td><td>'+fmtH(x.work)+'h</td><td class="l '+(x.issues.length?'ng':'')+'">'+(x.issues.join('、')||'—')+'</td></tr>'; });
+      if(r.days.length===0)h+='<tr><td colspan=7>この月の勤務はありません</td></tr>';
+      h+='</table>';
+    });
+    h+='</body></html>'; w.document.write(h); w.document.close();
+  }
+  const td={border:'1px solid #E2E8F0',padding:'3px 6px'};
+  return(
+    <div style={{background:'#fff',border:'2px solid #185FA5',borderRadius:12,marginBottom:14,overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px',background:'#EFF6FF',borderBottom:'1px solid #BFDBFE'}}>
+        <span style={{fontWeight:600,fontSize:14,color:'#185FA5'}}>👤 スタッフごとの勤務チェック（{y}年{m}月）</span>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button onClick={printReport} style={{padding:'5px 12px',border:'1px solid #185FA5',borderRadius:8,background:'#fff',color:'#185FA5',cursor:'pointer',fontSize:12,fontWeight:600}}>🖨 印刷／PDF</button>
+          <button onClick={onClose} style={{border:'none',background:'none',cursor:'pointer',fontSize:20,color:'#185FA5',lineHeight:1,padding:0}}>×</button>
+        </div>
+      </div>
+      <div style={{padding:14,maxHeight:'72vh',overflowY:'auto'}}>
+        <div style={{fontSize:11,color:'#64748B',marginBottom:10}}>休憩は労働基準法に準拠（労働6時間超で45分、8時間超で60分、それ以下はなし）。拘束＝出勤〜退勤、実働＝拘束−休憩。各自の「勤務できる曜日・時間」「週の上限／下限」との適合も判定しています。</div>
+        {reports.map(r=>(
+          <div key={r.s.id} style={{marginBottom:16,border:'1px solid '+(r.ok?'#CBD5E1':'#FCA5A5'),borderRadius:10,overflow:'hidden'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',padding:'8px 12px',background:r.ok?'#F8FAFC':'#FEF2F2',borderBottom:'1px solid '+(r.ok?'#E2E8F0':'#FECACA')}}>
+              <span style={{width:10,height:10,borderRadius:'50%',background:r.s.color,flexShrink:0}}/>
+              <span style={{fontWeight:700,fontSize:14}}>{r.s.name}</span>
+              <span style={{fontSize:11,padding:'1px 8px',borderRadius:10,fontWeight:600,background:r.ok?'#DCFCE7':'#FEE2E2',color:r.ok?'#166534':'#991B1B'}}>{r.ok?'✓ 条件適合':'⚠ 要確認'}</span>
+              <span style={{fontSize:11,color:'#64748B'}}>条件: {condStr(r.s)}</span>
+              <span style={{fontSize:11,color:'#64748B',marginLeft:'auto'}}>月間実働 <b>{fmtH(r.monthWork)}h</b>／{r.days.length}日</span>
+            </div>
+            {!r.ok&&(
+              <div style={{padding:'6px 12px',background:'#FFF7ED',borderBottom:'1px solid #FED7AA',fontSize:11,color:'#9A3412'}}>
+                {r.weekFlags.map((f,i)=><div key={'w'+i}>⚠ {f}</div>)}
+                {r.dayIssues.map((x,i)=><div key={'d'+i}>⚠ {x.d.getMonth()+1}/{x.d.getDate()}：{x.issues.join('、')}</div>)}
+              </div>
+            )}
+            <div style={{overflowX:'auto'}}>
+              <table style={{borderCollapse:'collapse',width:'100%',minWidth:520,fontSize:11}}>
+                <thead><tr>{['日付','担当','出勤〜退勤','拘束','休憩','実働','備考'].map(hh=><th key={hh} style={{border:'1px solid #E2E8F0',background:'#1E293B',color:'#fff',padding:'4px 6px',fontSize:10,whiteSpace:'nowrap'}}>{hh}</th>)}</tr></thead>
+                <tbody>
+                  {r.days.length===0&&<tr><td colSpan={7} style={{...td,textAlign:'center',color:'#94A3B8'}}>この月の勤務はありません</td></tr>}
+                  {r.days.map((x,i)=>(
+                    <tr key={x.dk} style={{background:x.issues.length?'#FEF2F2':(i%2?'#F8FAFC':'#fff')}}>
+                      <td style={{...td,textAlign:'center',whiteSpace:'nowrap'}}>{x.d.getMonth()+1}/{x.d.getDate()}({DAY_JP[x.dow]})</td>
+                      <td style={td}>{slotNames(x.assigned)}</td>
+                      <td style={{...td,textAlign:'center',whiteSpace:'nowrap'}}>{fmtHM(x.start)}〜{fmtHM(x.end)}</td>
+                      <td style={{...td,textAlign:'center'}}>{fmtH(x.span)}h</td>
+                      <td style={{...td,textAlign:'center'}}>{x.brk?x.brk+'分':'なし'}</td>
+                      <td style={{...td,textAlign:'center',fontWeight:600}}>{fmtH(x.work)}h</td>
+                      <td style={{...td,fontSize:10,color:x.issues.length?'#991B1B':'#94A3B8'}}>{x.issues.join('、')||'—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function HoursPanel({staff,weeks,dates,asgn,manualExclusions,slots,onClose,onAutoFill}){
   const weekLabels=weeks.map((wk,i)=>{
     const first=wk[0],last=wk[wk.length-1];
