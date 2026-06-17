@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v53</title>
+<title>シフト管理 v54</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v53';
+const APP_VERSION = 'v54';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1303,6 +1303,7 @@ function App(){
   const [openMenu,setOpenMenu]=useState(null); // 'file'|'settings'|'design'|'output'|null
   // ── スタッフモード用 state ──
   const [staffMyId,setStaffMyId]=useState(null);
+  const [helpTarget,setHelpTarget]=useState(null); // ⚠不足コマからの「挙手」対象 {dk,slotId,slotLabel,mo,day,dow}
   const [staffTab,setStaffTab]=useState('shift');
   const [staffReqDk,setStaffReqDk]=useState(null);
   const [pinTarget,setPinTarget]=useState(null); // {mode:'login'|'request'|'cancel', dk?, type?}
@@ -3411,6 +3412,25 @@ ${bodyHtml}
     });
     alert('管理者に報告しました。ありがとうございます。');
   }
+  // ⚠（人員不足）から直接「挙手」：その日のそのコマに勤務希望を出す（管理者へ送信）。ログイン済みなのでPIN再入力なし。
+  function submitHelp(dk,slotId,slotLabel){
+    const cur=requests[dk]?.[String(staffMyId)];
+    if(cur&&cur.type&&cur.type!=='work_wish'){
+      alert('この日はすでに別の申請（'+(REQ_TYPES[cur.type]?.label||cur.type)+'）があります。\n先にそちらを取り消してから挙手してください。');
+      setHelpTarget(null);return;
+    }
+    setRequests(prev=>{
+      const day={...(prev[dk]||{})};
+      const c=day[String(staffMyId)];
+      let sids=[],labels=[];
+      if(c&&c.type==='work_wish'){sids=[...(c.slots||[])];labels=[...(c.slotLabels||[])];}
+      if(!sids.includes(slotId)){sids.push(slotId);labels.push(slotLabel);}
+      day[String(staffMyId)]={type:'work_wish',slots:sids,slotLabels:labels,appliedAt:new Date().toISOString()};
+      return {...prev,[dk]:day};
+    });
+    setHelpTarget(null);
+    alert('🙋 挙手しました。管理者に送信されます。\n（'+slotLabel+'）');
+  }
 
   // ── 合言葉ログイン画面（クラウドに鍵がかかっている場合）──
   if(SB_ENABLED && authStatus!=='authed'){
@@ -3585,6 +3605,24 @@ ${bodyHtml}
             onCancel={()=>setStaffReqDk(null)}
             onCancelReq={()=>{setPinTarget({mode:'cancel',dk:staffReqDk});setStaffReqDk(null);}}/>
         )}
+        {/* ⚠不足コマからの「挙手」モーダル */}
+        {helpTarget&&(
+          <div onClick={()=>setHelpTarget(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2100,padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:340,padding:24,boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
+              <div style={{textAlign:'center',marginBottom:14}}>
+                <div style={{fontSize:30,marginBottom:6}}>🙋</div>
+                <div style={{fontSize:13,color:'#64748B',marginBottom:4}}>{staffMe?.name} さん</div>
+                <div style={{fontSize:16,fontWeight:700,lineHeight:1.5}}>{helpTarget.mo}月{helpTarget.day}日（{DAY_JP[helpTarget.dow]}）の<br/><span style={{color:'#185FA5'}}>{helpTarget.slotLabel}</span>に勤務できます</div>
+                <div style={{fontSize:11,color:'#64748B',marginTop:8,lineHeight:1.6}}>「挙手」を押すと管理者に伝わります。必ず勤務が確定するわけではなく、管理者が確認して必要なときにシフトへ反映します。</div>
+              </div>
+              <button onClick={()=>submitHelp(helpTarget.dk,helpTarget.slotId,helpTarget.slotLabel)}
+                style={{width:'100%',padding:'13px',border:'none',borderRadius:10,background:'#10B981',color:'#fff',cursor:'pointer',fontSize:15,fontWeight:700,marginBottom:8}}>
+                🙋 挙手する（勤務できます）
+              </button>
+              <button onClick={()=>setHelpTarget(null)} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>キャンセル</button>
+            </div>
+          </div>
+        )}
         {/* ヘッダー＋タブ統合 */}
         <div style={{background:'#fff',borderBottom:'1px solid #E2E8F0',display:'flex',alignItems:'center',paddingLeft:14}}>
           {/* 名前 */}
@@ -3632,7 +3670,7 @@ ${bodyHtml}
               )}
             </div>
             <div style={{fontSize:12,color:'#9A3412',background:'#FFF7ED',border:'1px solid #FDBA74',borderRadius:8,padding:'8px 12px',margin:'0 8px 10px',lineHeight:1.6}}>
-              ※ <strong>⚠</strong> のところはスタッフが不足しています。ベースシフト外でも勤務できる方は、自分の行の日付をタップして「このコマで勤務できます（申請）」を押してください。
+              ※ <strong>⚠</strong> のところはスタッフが不足しています。勤務できる方は、その<strong>⚠を直接タップ</strong>して「挙手」を押すと管理者に伝わります（自分の行の日付からも申請できます）。
             </div>
             <div style={{overflow:'auto',maxHeight:'calc(100vh - 150px)',borderRadius:12,border:'1px solid #E2E8F0',background:'#fff'}}>
               <table style={{borderCollapse:'collapse',fontSize:13,minWidth:'max-content'}}>
@@ -3681,7 +3719,10 @@ ${bodyHtml}
                               }
                             }
                             return(
-                              <td key={dk} style={{height:22,boxSizing:'border-box',borderRight:'1px solid #E2E8F0',borderBottom:'1px solid #E2E8F0',textAlign:'center',fontSize:11,padding:0,position:'sticky',top:topPx,zIndex:5,background:short?'#FDE9D6':(slot?'#FFFDFA':'#EEF1F5'),color:'#C2410C',fontWeight:700}}>{short?'⚠':''}</td>
+                              <td key={dk}
+                                onClick={short?()=>setHelpTarget({dk,slotId:slot.id,slotLabel:label,mo:d.getMonth()+1,day:d.getDate(),dow}):undefined}
+                                title={short?'タップして「勤務できます」と挙手':''}
+                                style={{height:22,boxSizing:'border-box',borderRight:'1px solid #E2E8F0',borderBottom:'1px solid #E2E8F0',textAlign:'center',fontSize:11,padding:0,position:'sticky',top:topPx,zIndex:5,background:short?'#FDE9D6':(slot?'#FFFDFA':'#EEF1F5'),color:'#C2410C',fontWeight:700,cursor:short?'pointer':'default'}}>{short?'⚠':''}</td>
                             );
                           })}
                         </tr>
