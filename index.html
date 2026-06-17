@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v51</title>
+<title>シフト管理 v52</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v51';
+const APP_VERSION = 'v52';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1922,7 +1922,7 @@ td.cell-off{background:#fff}
           const condDesc='週'+(wh.min>0?wh.min+'h以上':'')+(wh.min>0&&wh.max<40?'〜':'')+(wh.max<40?wh.max+'h以内':'');
           const violations=[];
           weeks.forEach((wk,wi)=>{
-            if(wk.length<3) return; // 月初・月末の短い週はスキップ
+            if(wk.length<3) return; // 月初・月末の極端に短い週はスキップ
             const h=weekHours(s.id,wk,asgn,manualExclusions,slots);
             const hasWork=wk.some(d=>{
               const dk=tdk(d),dayAsgn=asgn[dk]||{};
@@ -1930,10 +1930,14 @@ td.cell-off{background:#fff}
                 (ids||[]).includes(s.id)&&!(manualExclusions[dk]?.[slotId]||[]).includes(s.id));
             });
             if(!hasWork) return;
-            if(wh.min>0&&h<wh.min) violations.push('第'+(wi+1)+'週: '+h.toFixed(1)+'h（'+(wh.min-h).toFixed(1)+'h不足）');
-            if(wh.max<40&&h>wh.max) violations.push('第'+(wi+1)+'週: '+h.toFixed(1)+'h（'+(h-wh.max).toFixed(1)+'h超過）');
+            // その週の診療日数(月〜土・休診除く)。フル週=6日。短い週は6日換算の補正時間で最低時間を判定。
+            const cd=wk.filter(d=>(slots[d.getDay()]||[]).length>0&&!isClosedDay(tdk(d))).length;
+            const corr=(cd>0&&cd<6)?h*6/cd:h;
+            const shortWk=cd>0&&cd<6;
+            if(wh.min>0&&corr<wh.min) violations.push('第'+(wi+1)+'週: 実働'+h.toFixed(1)+'h'+(shortWk?'（補正'+corr.toFixed(1)+'h）':'')+'（最低'+wh.min+'h未達）');
+            if(wh.max<40&&h>wh.max) violations.push('第'+(wi+1)+'週: 実働'+h.toFixed(1)+'h（上限'+wh.max+'h超過）');
           });
-          if(violations.length===0) ok.push(condDesc+'：すべての週で達成');
+          if(violations.length===0) ok.push(condDesc+'：すべての週で達成（短い週は6日換算で判定）');
           else ng.push({cond:condDesc, detail:violations.join('\n')});
         }
 
@@ -4048,7 +4052,7 @@ ${bodyHtml}
 
           {showHoursPanel&&<HoursPanel staff={staff} weeks={weeks} dates={dates} asgn={asgn} manualExclusions={manualExclusions} slots={slots} onClose={()=>setShowHoursPanel(false)} onAutoFill={autoFillHours}/>}
           {showReportPanel&&<ReportPanel reports={generateReport()} y={y} m={m} onClose={()=>setShowReportPanel(false)} onExportPDF={exportReportPDF}/>}
-          {showStaffCheck&&<StaffCheckPanel staff={staff} dates={dates} asgn={asgn} manualExclusions={manualExclusions} tmps={tmps} slots={slots} weeks={weeks} y={y} m={m} onClose={()=>setShowStaffCheck(false)}/>}
+          {showStaffCheck&&<StaffCheckPanel staff={staff} dates={dates} asgn={asgn} manualExclusions={manualExclusions} tmps={tmps} slots={slots} weeks={weeks} y={y} m={m} holidays={holidays} manualClosedDays={manualClosedDays} onClose={()=>setShowStaffCheck(false)}/>}
           {aRes&&<AutoPanel result={aRes} apid={apid} staff={staff} y={y} m={m} allSlots={allSlots} weeks={weeks} slots={slots} patReqList={patReqList} finalizeAsgn={finalizeAsgn} onApply={applyPat} onClose={()=>{setARes(null);setApid(null);}} onJump={dk=>{setSelDk(dk);setDtab('assign');}}/>}
 
           {/* バックアップ履歴パネル */}
@@ -5700,10 +5704,13 @@ function ReportPanel({reports,y,m,onClose,onExportPDF}){
 // 勤務時間集計パネル
 // ================================================================
 // ── スタッフごとの勤務チェック（勤務条件との適合＋日別の出退勤・休憩・実働） ──
-function StaffCheckPanel({staff,dates,asgn,manualExclusions,tmps,slots,weeks,y,m,onClose}){
+function StaffCheckPanel({staff,dates,asgn,manualExclusions,tmps,slots,weeks,y,m,holidays,manualClosedDays,onClose}){
   const AM_OFF=['am_out','am_surg','surg'], PM_OFF=['pm_surg','pm_out','pm1','pm2'];
   // 労基法 第34条：労働時間が6時間超→45分、8時間超→60分、それ以下→0（拘束時間を目安に判定）
   const legalBreak=(span)=> span>480?60 : span>360?45 : 0;
+  const isClosed=dk=>{const mc=(manualClosedDays||{})[dk];if(mc===false)return false;if(mc===true)return true;return !!((holidays||{})[dk]);};
+  // その週の診療日数（月〜土・休診除く）。フル週=6日。短い週(月初・月末)は6日換算の「補正時間」に使う。
+  const clinicDays=wk=>wk.filter(d=>(slots[d.getDay()]||[]).length>0 && !isClosed(tdk(d))).length;
   function buildDay(s,d){
     const dk=tdk(d),dow=d.getDay(),da=asgn[dk]||{},dExcl=manualExclusions[dk]||{};
     const tc=tmps[dk]?.[String(s.id)];
@@ -5739,14 +5746,17 @@ function StaffCheckPanel({staff,dates,asgn,manualExclusions,tmps,slots,weeks,y,m
     const weekWork=weeks.map(wk=>{const set=new Set(wk.map(tdk));return days.filter(x=>set.has(x.dk)).reduce((a,x)=>a+x.work,0);});
     const monthWork=days.reduce((a,x)=>a+x.work,0);
     const dayIssues=days.filter(x=>x.issues.length>0);
+    const weekRows=weeks.map((wk,i)=>{const cd=clinicDays(wk);const actH=weekWork[i]/60;const corrH=(cd>0&&cd<6)?actH*6/cd:actH;return {i,cd,actH,corrH,short:cd<6};});
     const weekFlags=[];
-    weeks.forEach((wk,i)=>{ const h=weekWork[i]/60; if(weekWork[i]<=0)return;
-      if(wh&&wh.min>0&&h<wh.min-0.01)weekFlags.push('第'+(i+1)+'週 '+h.toFixed(1)+'h（最低'+wh.min+'h未満）');
-      if(wh&&wh.max<40&&h>wh.max+0.01)weekFlags.push('第'+(i+1)+'週 '+h.toFixed(1)+'h（上限'+wh.max+'h超）');
-      if(h>40.01)weekFlags.push('第'+(i+1)+'週 '+h.toFixed(1)+'h（週40h超）');
+    weekRows.forEach(r=>{ if(weekWork[r.i]<=0)return;
+      // 最低時間は「6日換算の補正時間」で達成判定（短い週を不当に未達としない）
+      if(wh&&wh.min>0&&r.corrH<wh.min-0.05)weekFlags.push('第'+(r.i+1)+'週 実働'+r.actH.toFixed(1)+'h'+(r.short?'（補正'+r.corrH.toFixed(1)+'h）':'')+'（最低'+wh.min+'h未達）');
+      // 上限・週40hは実働（実際に働いた時間）で判定
+      if(wh&&wh.max<40&&r.actH>wh.max+0.05)weekFlags.push('第'+(r.i+1)+'週 実働'+r.actH.toFixed(1)+'h（上限'+wh.max+'h超）');
+      if(r.actH>40.05)weekFlags.push('第'+(r.i+1)+'週 実働'+r.actH.toFixed(1)+'h（週40h超）');
     });
     const ok=dayIssues.length===0&&weekFlags.length===0;
-    return {s,wh,days,weekWork,monthWork,dayIssues,weekFlags,ok};
+    return {s,wh,days,weekWork,weekRows,monthWork,dayIssues,weekFlags,ok};
   });
   const fmtH=min=>(min/60).toFixed(1);
   const slotNames=arr=>arr.map(sl=>sl.label).join('・');
@@ -5799,6 +5809,26 @@ function StaffCheckPanel({staff,dates,asgn,manualExclusions,tmps,slots,weeks,y,m
                 {r.dayIssues.map((x,i)=><div key={'d'+i}>⚠ {x.d.getMonth()+1}/{x.d.getDate()}：{x.issues.join('、')}</div>)}
               </div>
             )}
+            {/* 週ごとのサマリー（短い週は6日換算の補正時間で達成判定） */}
+            <div style={{padding:'8px 12px',borderBottom:'1px solid #E2E8F0',overflowX:'auto'}}>
+              <table style={{borderCollapse:'collapse',fontSize:11}}>
+                <thead><tr>{['週','勤務日数','実働','補正(6日換算)','達成'].map(hh=><th key={hh} style={{border:'1px solid #E2E8F0',background:'#EFF6FF',color:'#185FA5',padding:'3px 8px',fontSize:10,whiteSpace:'nowrap'}}>{hh}</th>)}</tr></thead>
+                <tbody>
+                  {r.weekRows.filter(x=>r.weekWork[x.i]>0).map(x=>{
+                    const minOK=!(r.wh&&r.wh.min>0)|| x.corrH>=r.wh.min-0.05;
+                    const maxOK=!(r.wh&&r.wh.max<40)|| x.actH<=r.wh.max+0.05;
+                    const judge=(minOK&&maxOK&&x.actH<=40.05);
+                    return(<tr key={x.i}>
+                      <td style={{...td,textAlign:'center',whiteSpace:'nowrap'}}>第{x.i+1}週</td>
+                      <td style={{...td,textAlign:'center'}}>{x.cd}日{x.short?'(短)':''}</td>
+                      <td style={{...td,textAlign:'center'}}>{x.actH.toFixed(1)}h</td>
+                      <td style={{...td,textAlign:'center',fontWeight:600,color:x.short?'#185FA5':'#64748B'}}>{x.corrH.toFixed(1)}h</td>
+                      <td style={{...td,textAlign:'center',fontWeight:600,color:judge?'#166534':'#991B1B'}}>{judge?'✓':'⚠'}</td>
+                    </tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
             <div style={{overflowX:'auto'}}>
               <table style={{borderCollapse:'collapse',width:'100%',minWidth:520,fontSize:11}}>
                 <thead><tr>{['日付','担当','出勤〜退勤','拘束','休憩','実働','備考'].map(hh=><th key={hh} style={{border:'1px solid #E2E8F0',background:'#1E293B',color:'#fff',padding:'4px 6px',fontSize:10,whiteSpace:'nowrap'}}>{hh}</th>)}</tr></thead>
