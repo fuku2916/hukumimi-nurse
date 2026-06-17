@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v45</title>
+<title>シフト管理 v46</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v45';
+const APP_VERSION = 'v46';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -2891,7 +2891,7 @@ ${bodyHtml}
       return firstUncoveredBand(r,iv);
     };
     // sidが帯[g1,g2]を丸ごとカバーできるか（コマ範囲内・出勤開始/退勤を考慮）
-    const canCoverBand=(sid,slot,dow,g1,g2)=>{
+    const canCoverBand=(dk,sid,slot,dow,g1,g2)=>{
       const p=staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow,na[dk]);
       return !!(p&&p.s<=g1&&p.e>=g2);
     };
@@ -2942,7 +2942,7 @@ ${bodyHtml}
             if(A.id===B.id||A.type!==B.type)continue;
             if(activeCount(dk,A.id)<=getReq(dk,A.id))continue; // 余剰がなければ動かさない
             const cand=activeIds(dk,A.id).find(sid=>
-              !(na[dk][B.id]||[]).includes(sid)&&canCoverBand(sid,B,dow,gap.s,gap.e));
+              !(na[dk][B.id]||[]).includes(sid)&&canCoverBand(dk,sid,B,dow,gap.s,gap.e));
             if(cand!=null){
               const trial={...na,[dk]:{...na[dk],
                 [A.id]:(na[dk][A.id]||[]).filter(x=>x!==cand),
@@ -2957,7 +2957,7 @@ ${bodyHtml}
           const working=sid=>Object.values(na[dk]||{}).some(ids=>(ids||[]).includes(sid));
           const fresh=staff.find(s=>
             !working(s.id)&&!isOffOrExcl(dk,B.id,s.id)&&worksThisDay(s,dow)&&
-            qualified(dk,s.id,B,dow)&&canCoverBand(s.id,B,dow,gap.s,gap.e)&&
+            qualified(dk,s.id,B,dow)&&canCoverBand(dk,s.id,B,dow,gap.s,gap.e)&&
             trialOK(dk,s.id,{...na,[dk]:{...na[dk],[B.id]:[...(na[dk][B.id]||[]),s.id]}},week));
           if(fresh){na[dk][B.id]=[...(na[dk][B.id]||[]),fresh.id];filled=true;continue;}
           // ③ 同種コマの定員ちょうどの枠から移動（移動元が無人にならない範囲で定員割れを許容）
@@ -2966,7 +2966,7 @@ ${bodyHtml}
             if(activeCount(dk,A.id)<=1)continue; // 移動元を0名にしない
             const cand=activeIds(dk,A.id).find(sid=>{
               if((na[dk][B.id]||[]).includes(sid))return false;
-              if(!canCoverBand(sid,B,dow,gap.s,gap.e))return false;
+              if(!canCoverBand(dk,sid,B,dow,gap.s,gap.e))return false;
               // 移動後もAに無人帯が生まれないこと
               const restIv=activeIds(dk,A.id).filter(x=>x!==sid)
                 .map(x=>staffPresenceInSlot(staff.find(z=>z.id===x),A,dow,na[dk])).filter(Boolean);
@@ -5765,7 +5765,14 @@ function PatCard({p,isOn,staff,weeks,slots,y,patReqList,finalizeAsgn,onApply}){
 
   // 実際に適用されるのと同じ手順（ベースシフト土台＋AI＋時間調整＋補完）で集計する。
   // finalizeAsgn が無い場合のみ従来の時間調整のみにフォールバック。
-  const enforcedAsgn=finalizeAsgn?finalizeAsgn(convertedAsgn):(weeks&&slots?enforceHourLimits(convertedAsgn,staff,weeks,slots):convertedAsgn);
+  let enforcedAsgn;
+  try{
+    enforcedAsgn=finalizeAsgn?finalizeAsgn(convertedAsgn):(weeks&&slots?enforceHourLimits(convertedAsgn,staff,weeks,slots):convertedAsgn);
+  }catch(err){
+    // プレビュー集計でエラーが起きても画面全体が真っ白にならないよう、AI結果そのままで表示する
+    console.error('finalizeAsgn preview failed:',err);
+    enforcedAsgn=convertedAsgn;
+  }
 
   const cnt={};staff.forEach(s=>{cnt[s.id]=0;});
   Object.values(enforcedAsgn).forEach(ds=>{Object.values(ds).forEach(ids=>{(Array.isArray(ids)?ids:[]).forEach(sid=>{cnt[sid]=(cnt[sid]||0)+1;});});});
