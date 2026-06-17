@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v47</title>
+<title>シフト管理 v48</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v47';
+const APP_VERSION = 'v48';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -162,6 +162,17 @@ function canCoverSlot(s,slot,dow){
   var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return true;
   var dur=r.e-r.s; if(dur<=0)return true;
   return slotCoveredMinutes(s,slot,dow) >= dur*0.5;
+}
+// その曜日(dow)に勤務可能な設定か（勤務できる曜日 cond.days を参照。未設定なら可とみなす）
+function staffWorksDow(s,dow){
+  if(!s)return false;
+  var c=s.cond;
+  if(c&&c.days&&Object.keys(c.days).length) return c.days[dow]!==false;
+  return true;
+}
+// 勤務条件（曜日＋時間帯）からして、そのコマに本来出勤できるか
+function staffEligibleForSlot(s,slot,dow){
+  return staffWorksDow(s,dow) && canCoverSlot(s,slot,dow);
 }
 // そのスタッフがそのコマ(その曜日)で実際に在席できる時間帯 {s,e}（出勤開始/退勤制限を反映）。在席不可ならnull
 function staffPresenceInSlot(s,slot,dow,da){
@@ -4184,12 +4195,17 @@ ${bodyHtml}
                                 const _dtype=dT[String(s.id)]?.type; const isOff=['off','paid'].includes(_dtype)||(_dtype==='paid_am'&&['am_out','am_surg','surg'].includes(slot.id))||(_dtype==='paid_pm'&&['pm_surg','pm_out','pm1','pm2'].includes(slot.id));
                                 const isExcl=dExclSlot.includes(s.id);
                                 const isOn=here.includes(s.id)&&!isExcl;
+                                // 勤務条件（曜日＋時間帯）からこのコマに本来出勤できるか
+                                const eligible=staffEligibleForSlot(s,slot,sd.getDay());
+                                // 未割り当てで条件的に勤務不可 → グレー（臨時で割当は可能）
+                                const grayOut=!isOn&&!isOff&&!eligible;
                                 return(
                                   <button key={s.id} onClick={()=>{if(!isOff)tog(selDk,slot.id,s.id);}}
-                                    title={isExcl?'除外中（クリックで再割当）':''}
+                                    title={isExcl?'除外中（クリックで再割当）':grayOut?'勤務条件ではこの時間帯は勤務不可（臨時で割当は可能）':''}
                                     style={{padding:'3px 9px',borderRadius:20,fontSize:11,cursor:isOff?'not-allowed':'pointer',
-                                      border:'1.5px solid '+s.color,background:isOn?s.color:K.bg,
-                                      color:isOn?'#fff':isOff?K.textS:s.color,
+                                      border:'1.5px solid '+(isOn||(!isOff&&eligible)?s.color:'#CBD5E1'),
+                                      background:isOn?s.color:(grayOut?'#F1F5F9':K.bg),
+                                      color:isOn?'#fff':isOff?K.textS:eligible?s.color:'#94A3B8',
                                       opacity:(isOff||isExcl)?.45:1,fontWeight:isOn?500:400,
                                       textDecoration:(isOff||isExcl)?'line-through':'none'}}>
                                     {s.name}{['paid','off'].includes(dT[String(s.id)]?.type)?'(有給)':dT[String(s.id)]?.type==='paid_am'?'(有/午前)':dT[String(s.id)]?.type==='paid_pm'?'(有/午後)':isOff?'(休)':isExcl?'(除)':''}
