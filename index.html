@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v44</title>
+<title>シフト管理 v45</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v44';
+const APP_VERSION = 'v45';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -126,9 +126,24 @@ function staffStartMin(s,dow){
   if(c&&c.start)return hmToMin(c.start);
   return staffStartLimitMin(s.notes);
 }
+// 午前手術＋午後手術の「通し」は6時間勤務(9:30→15:30)として退勤を15:30に丸める労務ルール。
+// da（その日の配置: slotId→[staffId]）で両手術に入っていれば15:30(=930分)、そうでなければnull。
+function bothSurgeryCap(da,sid){
+  if(!da||sid==null)return null;
+  var inAm=(da['am_surg']||[]).indexOf(sid)>=0;
+  var inPm=(da['pm_surg']||[]).indexOf(sid)>=0;
+  return (inAm&&inPm)?(15*60+30):null;
+}
+// その日の実効退勤時刻（分）。通し手術なら15:30で打ち切る。
+function effEndMin(s,dow,da){
+  var lim=staffEndMin(s,dow);
+  var cap=bothSurgeryCap(da,s&&s.id);
+  if(cap!=null)lim=(lim==null)?cap:Math.min(lim,cap);
+  return lim;
+}
 // そのスタッフがそのコマ(その曜日)で早退するなら「(帰H:MM)」を返す
-function leaveNoteForSlot(s,slot,dow){
-  var lim=staffEndMin(s,dow); if(lim==null)return '';
+function leaveNoteForSlot(s,slot,dow,da){
+  var lim=effEndMin(s,dow,da); if(lim==null)return '';
   var r=slotRangeMin(slot); if(!r||r.e==null)return '';
   if(r.e>lim && (r.s==null || r.s<lim)) return '(帰'+fmtHM(lim)+')';
   return '';
@@ -149,10 +164,10 @@ function canCoverSlot(s,slot,dow){
   return slotCoveredMinutes(s,slot,dow) >= dur*0.5;
 }
 // そのスタッフがそのコマ(その曜日)で実際に在席できる時間帯 {s,e}（出勤開始/退勤制限を反映）。在席不可ならnull
-function staffPresenceInSlot(s,slot,dow){
+function staffPresenceInSlot(s,slot,dow,da){
   var r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return null;
   var a=r.s, b=r.e;
-  var st=staffStartMin(s,dow), lv=staffEndMin(s,dow);
+  var st=staffStartMin(s,dow), lv=effEndMin(s,dow,da);
   if(st!=null&&st>a)a=st;
   if(lv!=null&&lv<b)b=lv;
   if(b<=a)return null;
@@ -512,7 +527,14 @@ function dayHours(dk,staffId,asgn,excl,slotsState,staffArr){
     if(r&&r.s!=null&&r.e!=null)ranges.push(r);
   });
   const s=(staffArr?staffArr.find(x=>x.id===staffId):null)||STAFF_OBJ_LOOKUP[staffId]||null;
-  return daySpanHours(ranges, staffEndMin(s,dow));
+  // 通し手術(午前手術＋午後手術)は6時間勤務＝15:30退勤として扱う
+  var lv=staffEndMin(s,dow);
+  var exAm=excl&&(excl[dk]?.['am_surg']||[]).includes(staffId);
+  var exPm=excl&&(excl[dk]?.['pm_surg']||[]).includes(staffId);
+  if((da['am_surg']||[]).includes(staffId)&&!exAm&&(da['pm_surg']||[]).includes(staffId)&&!exPm){
+    var cap=15*60+30; lv=(lv==null)?cap:Math.min(lv,cap);
+  }
+  return daySpanHours(ranges, lv);
 }
 function weekHours(staffId,weekDates,asgn,excl,slotsState,staffArr){
   return weekDates.reduce((s,d)=>s+dayHours(tdk(d),staffId,asgn,excl,slotsState,staffArr),0);
@@ -696,6 +718,10 @@ ${hourConstraints||'  （時間制約の設定なし）'}
   例: 週35h以上のスタッフが月〜金に勤務する場合、am_out(3.5h)×5日=17.5hでは不足。
     → am_out+pm2(7.0h)×5日=35.0h で条件達成。このように複数コマを組み合わせること。
 
+━━ 通し手術の退勤ルール（6時間勤務）━━
+  1人が「午前手術(am_surg 9:30-15:00)」と「午後手術(pm_surg 13:00-18:30)」の両方に通しで入る場合、
+  その日は6時間勤務とし、15:30で退勤する扱い（9:30〜15:30）。労働時間は6.0hで計算する。
+  → この人は午後手術の15:30以降は不在になるため、午後手術の15:30〜18:30は別のスタッフでカバーすること。
 ━━ 労働基準法（第32条）の制約━━
   1日8時間・週40時間が上限。必ず守ること。
   1日複数コマの上限例: am_out+pm2=7.0h OK / am_out+pm1+pm2=9.0h → 違反
@@ -2861,12 +2887,12 @@ ${bodyHtml}
     // コマslot(曜日dow)の現在の無人帯（最初の1つ）。なければnull
     const gapOf=(dk,slot,dow)=>{
       const r=slotRangeMin(slot); if(!r||r.s==null||r.e==null)return null;
-      const iv=activeIds(dk,slot.id).map(sid=>staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow)).filter(Boolean);
+      const iv=activeIds(dk,slot.id).map(sid=>staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow,na[dk])).filter(Boolean);
       return firstUncoveredBand(r,iv);
     };
     // sidが帯[g1,g2]を丸ごとカバーできるか（コマ範囲内・出勤開始/退勤を考慮）
     const canCoverBand=(sid,slot,dow,g1,g2)=>{
-      const p=staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow);
+      const p=staffPresenceInSlot(staff.find(x=>x.id===sid),slot,dow,na[dk]);
       return !!(p&&p.s<=g1&&p.e>=g2);
     };
     // sidがそのコマに有資格か
@@ -2943,7 +2969,7 @@ ${bodyHtml}
               if(!canCoverBand(sid,B,dow,gap.s,gap.e))return false;
               // 移動後もAに無人帯が生まれないこと
               const restIv=activeIds(dk,A.id).filter(x=>x!==sid)
-                .map(x=>staffPresenceInSlot(staff.find(z=>z.id===x),A,dow)).filter(Boolean);
+                .map(x=>staffPresenceInSlot(staff.find(z=>z.id===x),A,dow,na[dk])).filter(Boolean);
               if(firstUncoveredBand(slotRangeMin(A),restIv))return false;
               const trial={...na,[dk]:{...na[dk],
                 [A.id]:(na[dk][A.id]||[]).filter(x=>x!==sid),
@@ -4070,7 +4096,7 @@ ${bodyHtml}
                                             const isExcl=exclIds.includes(sid);
                                             const isOff=slotOffIds.includes(sid);
                                             const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmps[dk]?.[String(sid)]?.type);
-                                            const leaveNote=(!isOffTmp&&!isExcl)?leaveNoteForSlot(s,slot,d.getDay()):'';
+                                            const leaveNote=(!isOffTmp&&!isExcl)?leaveNoteForSlot(s,slot,d.getDay(),da):'';
                                             const isReliefAdded=reliefAddedSet.has(dk+'|'+slot.id+'|'+sid);
                                             // isOff（tmps由来）のスタッフはバッジを薄く表示して「クリックで復活」を可能にする
                                             return(
