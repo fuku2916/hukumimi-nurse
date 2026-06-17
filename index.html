@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v46</title>
+<title>シフト管理 v47</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v46';
+const APP_VERSION = 'v47';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1367,6 +1367,18 @@ function App(){
   const [shiftUpdatedAt,setShiftUpdatedAt]=useState(()=>saved?.shiftUpdatedAt||'');
   const [selDk,setSelDk]=useState(null);
   const [dtab,setDtab]=useState('assign');
+  // 編集中の日付のすぐ右に「割当・臨時条件」パネルを降ろすための位置計算
+  const gridWrapRef=React.useRef(null);
+  const selRowRef=React.useRef(null);
+  const [panelTop,setPanelTop]=useState(0);
+  React.useLayoutEffect(()=>{
+    if(!selDk){ if(panelTop!==0)setPanelTop(0); return; }
+    const wrap=gridWrapRef.current, row=selRowRef.current;
+    if(wrap&&row){
+      const t=Math.max(0, row.getBoundingClientRect().top - wrap.getBoundingClientRect().top);
+      if(Math.abs(panelTop-t)>1)setPanelTop(t);
+    }
+  });
   const [eid,setEid]=useState(null);
   const [ef,setEf]=useState({});
   const [showAdd,setShowAdd]=useState(false);
@@ -4016,7 +4028,7 @@ ${bodyHtml}
             })}
           </div>
 
-          <div style={{display:'flex',gap:12,alignItems:'stretch'}}>
+          <div ref={gridWrapRef} style={{display:'flex',gap:12,alignItems:'flex-start'}}>
             {/* calendar */}
             <div style={{flex:1,overflowX:'auto',minWidth:0}}>
               <table style={{borderCollapse:'collapse',width:'100%',minWidth:390,tableLayout:'fixed'}}>
@@ -4032,7 +4044,7 @@ ${bodyHtml}
                     wk.forEach(d=>cells.push(d));
                     while(cells.length<6)cells.push(null);
                     return(
-                      <tr key={wi} style={{verticalAlign:'top'}}>
+                      <tr key={wi} ref={wk.some(x=>tdk(x)===selDk)?selRowRef:null} style={{verticalAlign:'top'}}>
                         {cells.map((d,ci)=>{
                           if(!d)return<td key={ci} style={{border:K.bd,background:K.bgS}}/>;
                           const dk=tdk(d),isSel=dk===selDk,isSat=d.getDay()===6;
@@ -4129,9 +4141,9 @@ ${bodyHtml}
               </table>
             </div>
 
-            {/* day detail */}
+            {/* day detail（編集中の日付の行までパネルを降ろす） */}
             {sd&&(
-              <div style={{width:272,flexShrink:0,background:K.bg,border:K.bd,borderRadius:K.rlg,display:'flex',flexDirection:'column',alignSelf:'stretch'}}>
+              <div style={{width:272,flexShrink:0,background:K.bg,border:K.bd,borderRadius:K.rlg,display:'flex',flexDirection:'column',alignSelf:'flex-start',marginTop:panelTop,position:'sticky',top:8,maxHeight:'calc(100vh - 24px)'}}>
                 <div style={{padding:'10px 14px',borderBottom:K.bd,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <span style={{fontWeight:500,fontSize:14}}>{sd.getMonth()+1}/{sd.getDate()}({DAY_JP[sdow]})</span>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
