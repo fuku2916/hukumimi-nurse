@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v56</title>
+<title>シフト管理 v57</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v56';
+const APP_VERSION = 'v57';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -984,7 +984,7 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
   const dateStr=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAY_JP[d.getDay()]+'）';
   const [selSlots,setSelSlots]=React.useState([]);
   const [msgMode,setMsgMode]=React.useState(false);
-  const [msgText,setMsgText]=React.useState('');
+  const msgRef=React.useRef(null); // 非制御入力（再描画・IMEで中身が消えないように）
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:1500}}>
       <div style={{background:'#fff',borderRadius:'16px 16px 0 0',width:'100%',maxWidth:520,padding:'20px 20px 36px',boxShadow:'0 -4px 24px rgba(0,0,0,0.12)',maxHeight:'85vh',overflowY:'auto'}}>
@@ -995,9 +995,9 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
           <>
             <div style={{fontSize:13,fontWeight:700,color:'#9A3412',marginBottom:6}}>✉ 管理者へのメッセージ</div>
             <div style={{fontSize:11,color:'#64748B',marginBottom:8,lineHeight:1.6}}>シフトの間違いの報告や、伝えたいことを自由に書いて送れます（例: この日は休みのはずです／午後だけなら出られます 等）。</div>
-            <textarea value={msgText} onChange={e=>setMsgText(e.target.value)} rows={4} placeholder="メッセージを入力…" autoFocus
+            <textarea ref={msgRef} defaultValue="" rows={4} placeholder="メッセージを入力…" autoFocus
               style={{width:'100%',boxSizing:'border-box',padding:'10px',border:'1px solid #CBD5E1',borderRadius:8,fontSize:14,marginBottom:10,resize:'vertical',fontFamily:'inherit'}}/>
-            <button onClick={()=>{const t=msgText.trim();if(!t){alert('メッセージを入力してください');return;}onReport(t);setMsgText('');setMsgMode(false);}}
+            <button onClick={()=>{const t=((msgRef.current&&msgRef.current.value)||'').trim();if(!t){alert('メッセージを入力してください');return;}onReport(t);if(msgRef.current)msgRef.current.value='';setMsgMode(false);}}
               style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:'#D97706',color:'#fff',cursor:'pointer',fontSize:14,fontWeight:700,marginBottom:8}}>送信する</button>
             <button onClick={()=>setMsgMode(false)} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>戻る</button>
           </>
