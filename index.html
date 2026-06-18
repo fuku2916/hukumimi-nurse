@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v54</title>
+<title>シフト管理 v56</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v54';
+const APP_VERSION = 'v56';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -983,17 +983,25 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
   const d=new Date(dk);
   const dateStr=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAY_JP[d.getDay()]+'）';
   const [selSlots,setSelSlots]=React.useState([]);
-  function reportMistake(){
-    const t=(window.prompt('この日のシフトの「間違い」を管理者に報告します。\n内容を入力してください（例: 私はこの日休みのはずです）'))||'';
-    if(t.trim())onReport(t.trim());
-  }
+  const [msgMode,setMsgMode]=React.useState(false);
+  const [msgText,setMsgText]=React.useState('');
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:1500}}>
       <div style={{background:'#fff',borderRadius:'16px 16px 0 0',width:'100%',maxWidth:520,padding:'20px 20px 36px',boxShadow:'0 -4px 24px rgba(0,0,0,0.12)',maxHeight:'85vh',overflowY:'auto'}}>
         <div style={{width:36,height:4,background:'#CBD5E1',borderRadius:2,margin:'0 auto 14px'}}/>
         <div style={{fontWeight:700,fontSize:15,textAlign:'center',marginBottom:4}}>{dateStr}</div>
         {mySlots.length>0&&<div style={{fontSize:12,color:'#64748B',textAlign:'center',marginBottom:14}}>担当コマ: {mySlots.map(s=>s.label).join('・')}</div>}
-        {selReq?(
+        {msgMode?(
+          <>
+            <div style={{fontSize:13,fontWeight:700,color:'#9A3412',marginBottom:6}}>✉ 管理者へのメッセージ</div>
+            <div style={{fontSize:11,color:'#64748B',marginBottom:8,lineHeight:1.6}}>シフトの間違いの報告や、伝えたいことを自由に書いて送れます（例: この日は休みのはずです／午後だけなら出られます 等）。</div>
+            <textarea value={msgText} onChange={e=>setMsgText(e.target.value)} rows={4} placeholder="メッセージを入力…" autoFocus
+              style={{width:'100%',boxSizing:'border-box',padding:'10px',border:'1px solid #CBD5E1',borderRadius:8,fontSize:14,marginBottom:10,resize:'vertical',fontFamily:'inherit'}}/>
+            <button onClick={()=>{const t=msgText.trim();if(!t){alert('メッセージを入力してください');return;}onReport(t);setMsgText('');setMsgMode(false);}}
+              style={{width:'100%',padding:'12px',border:'none',borderRadius:8,background:'#D97706',color:'#fff',cursor:'pointer',fontSize:14,fontWeight:700,marginBottom:8}}>送信する</button>
+            <button onClick={()=>setMsgMode(false)} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>戻る</button>
+          </>
+        ):selReq?(
           <>
             <div style={{padding:'12px 16px',borderRadius:10,background:REQ_TYPES[selReq.type]?.bg||'#F0FDF4',border:'1px solid '+(REQ_TYPES[selReq.type]?.border||'#86EFAC'),marginBottom:12,textAlign:'center'}}>
               <div style={{fontWeight:700,fontSize:14,color:REQ_TYPES[selReq.type]?.color||'#065F46'}}>
@@ -1002,7 +1010,7 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
               </div>
             </div>
             <button onClick={onCancelReq} style={{width:'100%',padding:'12px',border:'1px solid #FCA5A5',borderRadius:8,background:'#FEF2F2',color:'#991B1B',cursor:'pointer',fontSize:13,fontWeight:500,marginBottom:8}}>この申請を取り消す</button>
-            <button onClick={reportMistake} style={{width:'100%',padding:'11px',border:'1px solid #FDBA74',borderRadius:8,background:'#FFF7ED',color:'#9A3412',cursor:'pointer',fontSize:13,fontWeight:600,marginBottom:8}}>🚩 この日のシフトの間違いを報告</button>
+            <button onClick={()=>setMsgMode(true)} style={{width:'100%',padding:'11px',border:'1px solid #FDBA74',borderRadius:8,background:'#FFF7ED',color:'#9A3412',cursor:'pointer',fontSize:13,fontWeight:600,marginBottom:8}}>✉ 管理者へのメッセージ</button>
             <button onClick={onCancel} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>閉じる</button>
           </>
         ):(
@@ -1061,7 +1069,7 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
               </button>
             </div>
             {/* ミス報告 */}
-            <button onClick={reportMistake} style={{width:'100%',padding:'11px',border:'1px solid #FDBA74',borderRadius:8,background:'#FFF7ED',color:'#9A3412',cursor:'pointer',fontSize:13,fontWeight:600,marginBottom:8}}>🚩 この日のシフトの間違いを報告</button>
+            <button onClick={()=>setMsgMode(true)} style={{width:'100%',padding:'11px',border:'1px solid #FDBA74',borderRadius:8,background:'#FFF7ED',color:'#9A3412',cursor:'pointer',fontSize:13,fontWeight:600,marginBottom:8}}>✉ 管理者へのメッセージ</button>
             <button onClick={onCancel} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>キャンセル</button>
           </>
         )}
@@ -3431,6 +3439,22 @@ ${bodyHtml}
     setHelpTarget(null);
     alert('🙋 挙手しました。管理者に送信されます。\n（'+slotLabel+'）');
   }
+  // 挙手の取り下げ：その枠のwork_wishを外す（残りが無くなればその日の申請ごと削除）
+  function withdrawHelp(dk,slotId){
+    setRequests(prev=>{
+      const day={...(prev[dk]||{})};
+      const c=day[String(staffMyId)];
+      if(!c||c.type!=='work_wish')return prev;
+      const sids=(c.slots||[]).filter(x=>x!==slotId);
+      const labels=(c.slotLabels||[]).filter((_,i)=>(c.slots||[])[i]!==slotId);
+      if(sids.length===0){delete day[String(staffMyId)];}
+      else{day[String(staffMyId)]={...c,slots:sids,slotLabels:labels,appliedAt:new Date().toISOString()};}
+      if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}
+      return {...prev,[dk]:day};
+    });
+    setHelpTarget(null);
+    alert('挙手を取り下げました。');
+  }
 
   // ── 合言葉ログイン画面（クラウドに鍵がかかっている場合）──
   if(SB_ENABLED && authStatus!=='authed'){
@@ -3609,17 +3633,28 @@ ${bodyHtml}
         {helpTarget&&(
           <div onClick={()=>setHelpTarget(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2100,padding:16}}>
             <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:340,padding:24,boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
-              <div style={{textAlign:'center',marginBottom:14}}>
-                <div style={{fontSize:30,marginBottom:6}}>🙋</div>
-                <div style={{fontSize:13,color:'#64748B',marginBottom:4}}>{staffMe?.name} さん</div>
-                <div style={{fontSize:16,fontWeight:700,lineHeight:1.5}}>{helpTarget.mo}月{helpTarget.day}日（{DAY_JP[helpTarget.dow]}）の<br/><span style={{color:'#185FA5'}}>{helpTarget.slotLabel}</span>に勤務できます</div>
-                <div style={{fontSize:11,color:'#64748B',marginTop:8,lineHeight:1.6}}>「挙手」を押すと管理者に伝わります。必ず勤務が確定するわけではなく、管理者が確認して必要なときにシフトへ反映します。</div>
-              </div>
-              <button onClick={()=>submitHelp(helpTarget.dk,helpTarget.slotId,helpTarget.slotLabel)}
-                style={{width:'100%',padding:'13px',border:'none',borderRadius:10,background:'#10B981',color:'#fff',cursor:'pointer',fontSize:15,fontWeight:700,marginBottom:8}}>
-                🙋 挙手する（勤務できます）
-              </button>
-              <button onClick={()=>setHelpTarget(null)} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>キャンセル</button>
+              {(()=>{
+                const c=requests[helpTarget.dk]?.[String(staffMyId)];
+                const already=!!(c&&c.type==='work_wish'&&(c.slots||[]).includes(helpTarget.slotId));
+                return(<>
+                  <div style={{textAlign:'center',marginBottom:14}}>
+                    <div style={{fontSize:30,marginBottom:6}}>🙋</div>
+                    <div style={{fontSize:13,color:'#64748B',marginBottom:4}}>{staffMe?.name} さん</div>
+                    <div style={{fontSize:16,fontWeight:700,lineHeight:1.5}}>{helpTarget.mo}月{helpTarget.day}日（{DAY_JP[helpTarget.dow]}）の<br/><span style={{color:'#185FA5'}}>{helpTarget.slotLabel}</span>{already?'に挙手済みです':'に勤務できます'}</div>
+                    <div style={{fontSize:11,color:'#64748B',marginTop:8,lineHeight:1.6}}>{already?'この枠に「勤務できます」と挙手しています。取り下げると管理者への申請が取り消されます。':'「挙手」を押すと管理者に伝わります。必ず勤務が確定するわけではなく、管理者が確認して必要なときにシフトへ反映します。'}</div>
+                  </div>
+                  {already
+                    ?<button onClick={()=>withdrawHelp(helpTarget.dk,helpTarget.slotId)}
+                       style={{width:'100%',padding:'13px',border:'1px solid #FCA5A5',borderRadius:10,background:'#FEF2F2',color:'#991B1B',cursor:'pointer',fontSize:15,fontWeight:700,marginBottom:8}}>
+                       ↩ 挙手を取り下げる
+                     </button>
+                    :<button onClick={()=>submitHelp(helpTarget.dk,helpTarget.slotId,helpTarget.slotLabel)}
+                       style={{width:'100%',padding:'13px',border:'none',borderRadius:10,background:'#10B981',color:'#fff',cursor:'pointer',fontSize:15,fontWeight:700,marginBottom:8}}>
+                       🙋 挙手する（勤務できます）
+                     </button>}
+                  <button onClick={()=>setHelpTarget(null)} style={{width:'100%',padding:'10px',border:'1px solid #E2E8F0',borderRadius:8,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:13}}>閉じる</button>
+                </>);
+              })()}
             </div>
           </div>
         )}
@@ -3900,7 +3935,7 @@ ${bodyHtml}
                     <MenuDivider/>
                     <MenuLabel text="シフトパターン"/>
                     <MenuItem icon="📅" label="ベースシフト" onClick={()=>{setTab('base');setOpenMenu(null);}} active={tab==='base'}/>
-                    <MenuItem icon="🌸" label="申請・ミス報告" onClick={()=>{setTab('paid');setOpenMenu(null);}} active={tab==='paid'}/>
+                    <MenuItem icon="🌸" label="申請・メッセージ" onClick={()=>{setTab('paid');setOpenMenu(null);}} active={tab==='paid'}/>
 
                     <MenuDivider/>
                     <MenuLabel text="認証"/>
@@ -3955,7 +3990,7 @@ ${bodyHtml}
               <MenuItem icon="🏥" label="診療枠" onClick={()=>{setTab('ref');setOpenMenu(null);}} active={tab==='ref'}/>
               <MenuItem icon="📊" label="必要人数" onClick={()=>{setTab('req');setOpenMenu(null);}} active={tab==='req'}/>
               <MenuItem icon="📅" label="ベースシフト" onClick={()=>{setTab('base');setOpenMenu(null);}} active={tab==='base'}/>
-              <MenuItem icon="🌸" label="申請・ミス報告" onClick={()=>{setTab('paid');setOpenMenu(null);}} active={tab==='paid'}/>
+              <MenuItem icon="🌸" label="申請・メッセージ" onClick={()=>{setTab('paid');setOpenMenu(null);}} active={tab==='paid'}/>
               <MenuItem icon="🔑" label={apiKey?'APIキー設定済':'APIキー未設定'} onClick={()=>{setTab('shift');setShowKeyPanel(p=>!p);setOpenMenu(null);}}/>
               <MenuItem icon="🔐" label="管理者PIN変更" onClick={()=>{setTab('shift');setShowAdminPinSetting(p=>!p);setOpenMenu(null);}}/>
               <MenuDivider/>
@@ -4722,7 +4757,7 @@ ${bodyHtml}
             return(
               <div style={{background:K.bg,border:'1px solid #FDBA74',borderRadius:K.rlg,padding:16,marginBottom:16}}>
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:reports.length?12:0,paddingBottom:reports.length?8:0,borderBottom:reports.length?K.bd:'none'}}>
-                  <div style={{fontWeight:600,fontSize:14,color:'#9A3412'}}>🚩 スタッフからのミス報告</div>
+                  <div style={{fontWeight:600,fontSize:14,color:'#9A3412'}}>✉ スタッフからのメッセージ</div>
                   {unresolved.length>0&&<span style={{fontSize:11,background:'#FFEDD5',color:'#9A3412',borderRadius:10,padding:'1px 8px',fontWeight:600}}>未対応 {unresolved.length}件</span>}
                 </div>
                 {reports.length===0
