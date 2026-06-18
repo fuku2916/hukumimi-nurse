@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v62</title>
+<title>シフト管理 v63</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v62';
+const APP_VERSION = 'v63';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1346,6 +1346,9 @@ function App(){
   // 削除した申請の墓標（クラウドのマージ保存で復活させないため。2分間有効）
   const reqTomb=React.useRef({});
   const markReqDeleted=(dk,key)=>{reqTomb.current[dk+'|'+String(key)]=Date.now()+120000;};
+  // 直近のローカル編集時刻。これからしばらくはポーリング上書きを止め、承認等の編集が消えないようにする
+  const lastReqEditRef=React.useRef(0);
+  const touchReqEdit=()=>{lastReqEditRef.current=Date.now();};
   // requestsが変わったら即保存
   React.useEffect(()=>{saveRequests(requests);},[requests]);
   // 管理者モードは申請データをポーリングで監視（3秒ごと）
@@ -1354,6 +1357,7 @@ function App(){
   React.useEffect(()=>{
     if(appMode!=='admin')return;
     const id=setInterval(async()=>{
+      if(Date.now()-lastReqEditRef.current<6000)return; // 直近の編集(承認/却下等)が保存され切るまで上書きしない
       let latest;
       if(SB_ENABLED){
         latest=await SB.get('requests_data');
@@ -1361,6 +1365,7 @@ function App(){
       }else{
         latest=loadRequests();
       }
+      if(Date.now()-lastReqEditRef.current<6000)return; // 取得中に編集が入った場合も上書きしない
       setRequests(prev=>{
         if(JSON.stringify(prev)===JSON.stringify(latest))return prev;
         return latest;
@@ -4819,8 +4824,8 @@ ${bodyHtml}
                           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                             <button onClick={()=>{setTab('shift');setSelDk(dk);setDtab('assign');}} style={{padding:'3px 9px',border:'1px solid #93C5FD',borderRadius:6,background:'#EBF4FF',color:'#185FA5',cursor:'pointer',fontSize:11}}>該当日を開く</button>
                             {!r.resolved
-                              ?<button onClick={()=>{setRequests(prev=>{const day={...(prev[dk]||{})};day[key]={...day[key],resolved:true};return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,fontWeight:600}}>対応済みにする</button>
-                              :<button onClick={()=>{markReqDeleted(dk,key);setRequests(prev=>{const day={...(prev[dk]||{})};delete day[key];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11}}>削除</button>}
+                              ?<button onClick={()=>{touchReqEdit();setRequests(prev=>{const day={...(prev[dk]||{})};day[key]={...day[key],resolved:true};return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,fontWeight:600}}>対応済みにする</button>
+                              :<button onClick={()=>{touchReqEdit();markReqDeleted(dk,key);setRequests(prev=>{const day={...(prev[dk]||{})};delete day[key];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11}}>削除</button>}
                           </div>
                         </div>
                       );
@@ -4959,6 +4964,7 @@ ${bodyHtml}
                           :req.type==='work_wish'
                           ?<div style={{display:'flex',gap:4,flexShrink:0}}>
                             <button onClick={()=>{
+                              touchReqEdit();
                               const slotIds=(req.slots||[]);
                               if(slotIds.length){setAsgn(prev=>{const day={...(prev[dk]||{})};slotIds.forEach(slid=>{const cur=day[slid]||[];if(!cur.includes(sid))day[slid]=[...cur,sid];});return{...prev,[dk]:day};});}
                               setRequests(prev=>{const day={...(prev[dk]||{})};day[String(sid)]={...(day[String(sid)]||{}),approved:true,decision:'approved',decidedAt:new Date().toISOString()};return{...prev,[dk]:day};});
@@ -4966,6 +4972,7 @@ ${bodyHtml}
                             }} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,whiteSpace:'nowrap',fontWeight:600}}>勤務を承認</button>
                             <button onClick={()=>{
                               if(!window.confirm('この出勤希望を却下しますか？\n本人の「申請一覧」に「見送り」と表示されます。'))return;
+                              touchReqEdit();
                               setRequests(prev=>{const day={...(prev[dk]||{})};day[String(sid)]={...(day[String(sid)]||{}),decision:'rejected',decidedAt:new Date().toISOString()};return{...prev,[dk]:day};});
                             }} style={{padding:'3px 8px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}}>却下</button>
                           </div>
