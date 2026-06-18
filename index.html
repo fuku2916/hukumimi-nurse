@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v57</title>
+<title>シフト管理 v58</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v57';
+const APP_VERSION = 'v58';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -894,6 +894,23 @@ function loadLS(){try{const r=localStorage.getItem(LS_KEY);return r?JSON.parse(r
 function saveLS(d){try{localStorage.setItem(LS_KEY,JSON.stringify(d));}catch(e){}}
 function loadRequests(){try{const r=localStorage.getItem(LS_REQ);return r?JSON.parse(r):{};}catch(e){return {};}}
 function saveRequests(d){try{localStorage.setItem(LS_REQ,JSON.stringify(d));}catch(e){}}
+// requestsのマージ保存用：他端末が追加した申請・メッセージを消さずに統合する。
+// localを基準に、cloudにしか無いキー（他端末の追加）を取り込む。ただし最近ローカルで削除したキー(tomb)は復活させない。
+function mergeRequests(local,cloud,tomb){
+  local=local||{}; cloud=cloud||{}; tomb=tomb||{};
+  const out={}; const now=Date.now();
+  for(const dk in local){ out[dk]={...local[dk]}; }
+  for(const dk in cloud){
+    for(const k in cloud[dk]){
+      if(out[dk]&&Object.prototype.hasOwnProperty.call(out[dk],k))continue; // localにある→local優先
+      if(tomb[dk+'|'+k]&&tomb[dk+'|'+k]>now)continue;                       // 最近ローカルで削除→復活させない
+      if(!out[dk])out[dk]={};
+      out[dk][k]=cloud[dk][k];
+    }
+  }
+  for(const dk in out){ if(Object.keys(out[dk]).length===0)delete out[dk]; }
+  return out;
+}
 
 // ── 有給ユーティリティ ──
 // paidLeave構造: { staffId: { granted: number, history: [{dk, unit:'full'|'am'|'pm', note, appliedAt}] } }
@@ -1275,7 +1292,7 @@ function App(){
   // スタッフモード：requestsが変わったらSupabaseに即保存
   React.useEffect(()=>{
     if(appMode!=='staff'||!SB_ENABLED||!sbReadyRef.current)return;
-    SB.set('requests_data',requests);
+    (async()=>{const cloud=await SB.get('requests_data');SB.set('requests_data',mergeRequests(requests,cloud,reqTomb.current));})();
   },[requests,appMode]);
 
   // ポーリング（スタッフモード：10秒ごとにシフト更新を確認）
@@ -1319,6 +1336,9 @@ function App(){
   const [staffM,setStaffM]=useState(new Date().getMonth()+1);
   // 申請データはlocalStorageから読み書き（管理者モードと共有）
   const [requests,setRequests]=useState(()=>loadRequests());
+  // 削除した申請の墓標（クラウドのマージ保存で復活させないため。2分間有効）
+  const reqTomb=React.useRef({});
+  const markReqDeleted=(dk,key)=>{reqTomb.current[dk+'|'+String(key)]=Date.now()+120000;};
   // requestsが変わったら即保存
   React.useEffect(()=>{saveRequests(requests);},[requests]);
   // 管理者モードは申請データをポーリングで監視（3秒ごと）
@@ -1543,7 +1563,8 @@ function App(){
     if(!SB_ENABLED||!sbReadyRef.current)return; // クラウド読込成功後のみ保存
     if(sbReqSaveTimer.current)clearTimeout(sbReqSaveTimer.current);
     sbReqSaveTimer.current=setTimeout(async()=>{
-      await SB.set('requests_data',requests);
+      const cloud=await SB.get('requests_data');
+      await SB.set('requests_data',mergeRequests(requests,cloud,reqTomb.current));
     },1000);
   },[requests]);
 
@@ -3404,6 +3425,7 @@ ${bodyHtml}
     });
   }
   function doCancelRequest(dk){
+    markReqDeleted(dk,staffMyId);
     setRequests(prev=>{
       const day={...(prev[dk]||{})};delete day[String(staffMyId)];
       if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}
@@ -3447,7 +3469,7 @@ ${bodyHtml}
       if(!c||c.type!=='work_wish')return prev;
       const sids=(c.slots||[]).filter(x=>x!==slotId);
       const labels=(c.slotLabels||[]).filter((_,i)=>(c.slots||[])[i]!==slotId);
-      if(sids.length===0){delete day[String(staffMyId)];}
+      if(sids.length===0){delete day[String(staffMyId)];markReqDeleted(dk,staffMyId);}
       else{day[String(staffMyId)]={...c,slots:sids,slotLabels:labels,appliedAt:new Date().toISOString()};}
       if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}
       return {...prev,[dk]:day};
@@ -4777,7 +4799,7 @@ ${bodyHtml}
                             <button onClick={()=>{setTab('shift');setSelDk(dk);setDtab('assign');}} style={{padding:'3px 9px',border:'1px solid #93C5FD',borderRadius:6,background:'#EBF4FF',color:'#185FA5',cursor:'pointer',fontSize:11}}>該当日を開く</button>
                             {!r.resolved
                               ?<button onClick={()=>{setRequests(prev=>{const day={...(prev[dk]||{})};day[key]={...day[key],resolved:true};return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,fontWeight:600}}>対応済みにする</button>
-                              :<button onClick={()=>{setRequests(prev=>{const day={...(prev[dk]||{})};delete day[key];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11}}>削除</button>}
+                              :<button onClick={()=>{markReqDeleted(dk,key);setRequests(prev=>{const day={...(prev[dk]||{})};delete day[key];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});}} style={{padding:'3px 9px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11}}>削除</button>}
                           </div>
                         </div>
                       );
@@ -4920,7 +4942,7 @@ ${bodyHtml}
                             }} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,whiteSpace:'nowrap',fontWeight:600}}>勤務を承認</button>
                             <button onClick={()=>{
                               if(!window.confirm('このベースシフト外勤務の申請を却下（削除）しますか？'))return;
-                              setRequests(prev=>{const day={...(prev[dk]||{})};delete day[String(sid)];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});
+                              markReqDeleted(dk,sid);setRequests(prev=>{const day={...(prev[dk]||{})};delete day[String(sid)];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});
                             }} style={{padding:'3px 8px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}}>却下</button>
                           </div>
                           :<button onClick={()=>{
