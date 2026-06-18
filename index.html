@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v60</title>
+<title>シフト管理 v61</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v60';
+const APP_VERSION = 'v61';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1023,7 +1023,14 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
             <div style={{padding:'12px 16px',borderRadius:10,background:REQ_TYPES[selReq.type]?.bg||'#F0FDF4',border:'1px solid '+(REQ_TYPES[selReq.type]?.border||'#86EFAC'),marginBottom:12,textAlign:'center'}}>
               <div style={{fontWeight:700,fontSize:14,color:REQ_TYPES[selReq.type]?.color||'#065F46'}}>
                 {REQ_TYPES[selReq.type]?.icon} {REQ_TYPES[selReq.type]?.label} 申請済み
-                {selReq.type==='work_wish'&&selReq.slots&&<div style={{fontSize:12,fontWeight:400,marginTop:4}}>希望コマ: {selReq.slots.join('・')}</div>}
+                {selReq.type==='work_wish'&&(selReq.slotLabels||selReq.slots)&&<div style={{fontSize:12,fontWeight:400,marginTop:4}}>希望コマ: {(selReq.slotLabels||selReq.slots).join('・')}</div>}
+                {selReq.type==='work_wish'&&(
+                  selReq.decision==='approved'
+                    ?<div style={{fontSize:13,fontWeight:700,color:'#166534',marginTop:6}}>✓ 承認されました（出勤予定）</div>
+                    :selReq.decision==='rejected'
+                    ?<div style={{fontSize:13,fontWeight:700,color:'#991B1B',marginTop:6}}>✕ 今回は見送りになりました</div>
+                    :<div style={{fontSize:12,fontWeight:600,color:'#92400E',marginTop:6}}>⏳ 管理者の確認待ち</div>
+                )}
               </div>
             </div>
             <button onClick={onCancelReq} style={{width:'100%',padding:'12px',border:'1px solid #FCA5A5',borderRadius:8,background:'#FEF2F2',color:'#991B1B',cursor:'pointer',fontSize:13,fontWeight:500,marginBottom:8}}>この申請を取り消す</button>
@@ -3875,7 +3882,14 @@ ${bodyHtml}
                         <div key={dk} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:rt.bg,border:'1px solid '+rt.border,borderRadius:8}}>
                           <div style={{flex:1}}>
                             <div style={{fontWeight:700,fontSize:12,color:rt.color}}>{rt.icon} {d.getMonth()+1}/{d.getDate()}({DAY_JP[d.getDay()]})</div>
-                            <div style={{fontSize:11,color:'#64748B',marginTop:1}}>{rt.label}</div>
+                            <div style={{fontSize:11,color:'#64748B',marginTop:1}}>{rt.label}{req.type==='work_wish'&&req.slotLabels?'（'+req.slotLabels.join('・')+'）':''}</div>
+                            {req.type==='work_wish'&&(
+                              req.decision==='approved'
+                                ?<div style={{fontSize:11,fontWeight:700,color:'#166534',marginTop:3}}>✓ 承認されました（出勤予定）</div>
+                                :req.decision==='rejected'
+                                ?<div style={{fontSize:11,fontWeight:700,color:'#991B1B',marginTop:3}}>✕ 今回は見送りになりました</div>
+                                :<div style={{fontSize:11,fontWeight:600,color:'#92400E',marginTop:3}}>⏳ 管理者の確認待ち</div>
+                            )}
                           </div>
                           <button onClick={()=>setStaffReqDk(dk)} style={{padding:'4px 9px',border:'1px solid #E2E8F0',borderRadius:8,background:'#fff',color:'#64748B',cursor:'pointer',fontSize:11}}>詳細</button>
                         </div>
@@ -3910,7 +3924,7 @@ ${bodyHtml}
 
           {/* スタッフ申請バッジ */}
           {(()=>{let n=0;Object.values(requests).forEach(d=>Object.values(d).forEach(r=>{if(r&&['paid_full','paid_am','paid_pm','off'].includes(r.type))n++;}));return n>0?<span onClick={()=>{setTab('paid');setOpenMenu(null);}} style={{fontSize:13,background:'#FDF2F8',color:'#86198F',border:'1px solid #F9A8D4',borderRadius:10,padding:'2px 8px',fontWeight:600,whiteSpace:'nowrap',cursor:'pointer',marginRight:6,flexShrink:0}}>🌸 {n}件</span>:null;})()}
-          {(()=>{let nw=0;Object.values(requests).forEach(d=>Object.values(d).forEach(r=>{if(r&&r.type==='work_wish'&&!r.approved)nw++;}));return nw>0?<span onClick={()=>{setTab('paid');setOpenMenu(null);}} style={{fontSize:13,background:'#ECFDF5',color:'#065F46',border:'1px solid #6EE7B7',borderRadius:10,padding:'2px 8px',fontWeight:600,whiteSpace:'nowrap',cursor:'pointer',marginRight:6,flexShrink:0}}>🙋 {nw}件</span>:null;})()}
+          {(()=>{let nw=0;Object.values(requests).forEach(d=>Object.values(d).forEach(r=>{if(r&&r.type==='work_wish'&&!r.decision)nw++;}));return nw>0?<span onClick={()=>{setTab('paid');setOpenMenu(null);}} style={{fontSize:13,background:'#ECFDF5',color:'#065F46',border:'1px solid #6EE7B7',borderRadius:10,padding:'2px 8px',fontWeight:600,whiteSpace:'nowrap',cursor:'pointer',marginRight:6,flexShrink:0}}>🙋 {nw}件</span>:null;})()}
           {(()=>{let nr=0;Object.values(requests).forEach(d=>Object.values(d).forEach(r=>{if(r&&r.type==='mistake_report'&&!r.resolved)nr++;}));return nr>0?<span onClick={()=>{setTab('paid');setOpenMenu(null);}} style={{fontSize:13,background:'#FFF7ED',color:'#9A3412',border:'1px solid #FDBA74',borderRadius:10,padding:'2px 8px',fontWeight:600,whiteSpace:'nowrap',cursor:'pointer',marginRight:6,flexShrink:0}}>🚩 {nr}件</span>:null;})()}
 
           {/* PC：メニュー項目 / スマホ：ハンバーガー */}
@@ -4877,7 +4891,7 @@ ${bodyHtml}
                 if(req.type==='mistake_report')return; // 報告は別パネルで扱う
                 // 反映済み判定：応援出勤は承認フラグ、その他はtmps
                 const alreadyApplied=req.type==='work_wish'
-                  ? !!req.approved
+                  ? !!req.decision
                   : (tmps[dk]?.[String(sid)]&&['paid','paid_am','paid_pm','off'].includes(tmps[dk][String(sid)].type));
                 pending.push({dk,sid,req,staffName:s.name,staffColor:s.color,alreadyApplied});
               });
@@ -4935,15 +4949,18 @@ ${bodyHtml}
                         {req.type==='work_wish'&&req.slotLabels&&<span style={{fontSize:10,color:'#374151',marginLeft:4}}>（{req.slotLabels.join('・')}）</span>}
                         </div>
                         {alreadyApplied
-                          ?<span style={{fontSize:10,color:K.textG,background:K.bgG,borderRadius:6,padding:'1px 6px',whiteSpace:'nowrap'}}>{req.type==='work_wish'?'✓ 承認済み':'✓ 反映済み'}</span>
+                          ?<span style={{fontSize:10,color:req.decision==='rejected'?'#991B1B':K.textG,background:req.decision==='rejected'?'#FEF2F2':K.bgG,border:'1px solid '+(req.decision==='rejected'?'#FCA5A5':'#86EFAC'),borderRadius:6,padding:'1px 6px',whiteSpace:'nowrap'}}>{req.type==='work_wish'?(req.decision==='rejected'?'✕ 却下済み':'✓ 承認済み'):'✓ 反映済み'}</span>
                           :req.type==='work_wish'
                           ?<div style={{display:'flex',gap:4,flexShrink:0}}>
                             <button onClick={()=>{
-                              setRequests(prev=>{const day={...(prev[dk]||{})};day[String(sid)]={...(day[String(sid)]||{}),approved:true};return{...prev,[dk]:day};});
+                              const slotIds=(req.slots||[]);
+                              if(slotIds.length){setAsgn(prev=>{const day={...(prev[dk]||{})};slotIds.forEach(slid=>{const cur=day[slid]||[];if(!cur.includes(sid))day[slid]=[...cur,sid];});return{...prev,[dk]:day};});}
+                              setRequests(prev=>{const day={...(prev[dk]||{})};day[String(sid)]={...(day[String(sid)]||{}),approved:true,decision:'approved',decidedAt:new Date().toISOString()};return{...prev,[dk]:day};});
+                              alert('承認しました。シフトに追加しました。\n本人の「申請一覧」に「承認」と表示されます。\n（シフト表への反映は「☁ 保存／公開」で確定してください）');
                             }} style={{padding:'3px 9px',border:'1px solid #10B981',borderRadius:6,background:'#ECFDF5',color:'#065F46',cursor:'pointer',fontSize:11,whiteSpace:'nowrap',fontWeight:600}}>勤務を承認</button>
                             <button onClick={()=>{
-                              if(!window.confirm('このベースシフト外勤務の申請を却下（削除）しますか？'))return;
-                              markReqDeleted(dk,sid);setRequests(prev=>{const day={...(prev[dk]||{})};delete day[String(sid)];if(Object.keys(day).length===0){const n={...prev};delete n[dk];return n;}return{...prev,[dk]:day};});
+                              if(!window.confirm('この出勤希望を却下しますか？\n本人の「申請一覧」に「見送り」と表示されます。'))return;
+                              setRequests(prev=>{const day={...(prev[dk]||{})};day[String(sid)]={...(day[String(sid)]||{}),decision:'rejected',decidedAt:new Date().toISOString()};return{...prev,[dk]:day};});
                             }} style={{padding:'3px 8px',border:'1px solid #E2E8F0',borderRadius:6,background:'#F8FAFC',color:'#64748B',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}}>却下</button>
                           </div>
                           :<button onClick={()=>{
