@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v61</title>
+<title>シフト管理 v62</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v61';
+const APP_VERSION = 'v62';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -3816,14 +3816,20 @@ ${bodyHtml}
                           const rt=req?REQ_TYPES[req.type]:null;
                           const tmpCond=tmps[dk]?.[String(s.id)];
                           const isOffTmp=['off','paid','paid_am','paid_pm'].includes(tmpCond?.type);
-                          const cellBg=isClosed?'#FEF2F2':req?rt.bg:isOffTmp?'#FFF7ED':isSat?'#FFFBEB':'';
+                          const cellBg=isClosed?'#FEF2F2':req?(req.type==='work_wish'&&req.decision==='rejected'?'#F1F5F9':rt.bg):isOffTmp?'#FFF7ED':isSat?'#FFFBEB':'';
                           return(
                             <td key={dk}
                               onClick={()=>{if(isMe&&!isClosed)setStaffReqDk(dk);}}
                               style={{padding:'6px 4px',border:'1px solid #E2E8F0',textAlign:'center',verticalAlign:'middle',
                                 background:cellBg,cursor:isMe&&!isClosed?'pointer':'default',minWidth:52,maxWidth:68}}>
                               {isClosed?<span style={{fontSize:11,color:'#999'}}>—</span>
-                              :req?<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}{req.type==='work_wish'&&req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
+                              :req?(req.type==='work_wish'
+                                ?(req.decision==='approved'
+                                    ?<div style={{fontSize:11,fontWeight:700,color:'#166534',lineHeight:1.4}}>✓ 承認{req.slotLabels&&<div style={{fontSize:9,fontWeight:600}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>
+                                    :req.decision==='rejected'
+                                    ?<div style={{fontSize:11,fontWeight:700,color:'#991B1B',lineHeight:1.4}}>✕ 見送り</div>
+                                    :<div style={{fontSize:11,fontWeight:700,color:rt.color,lineHeight:1.4}}>🙋 希望{req.slotLabels&&<div style={{fontSize:9,fontWeight:400}}>{req.slotLabels.slice(0,2).join('/')}</div>}</div>)
+                                :<div style={{fontSize:12,fontWeight:700,color:rt.color,lineHeight:1.4}}>{rt.icon} {rt.short}</div>)
                               :isOffTmp?<div style={{fontSize:11,color:'#C2410C'}}>休み</div>
                               :sSlots.length>0?(
                                 <div style={{display:'flex',flexDirection:'column',gap:1,alignItems:'center'}}>
