@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>シフト管理 v63</title>
+<title>シフト管理 v64</title>
 <style>
 /* レスポンシブ：スマホ（<768px）は小さめフォント */
 :root {
@@ -46,7 +46,7 @@ textarea{resize:vertical}
 const { useState, useMemo, useEffect } = React;
 const DAY_JP = ['日','月','火','水','木','金','土'];
 // ── アプリの版番号（更新のたびにここだけ増やす：v8 → v9 → v10 …）──
-const APP_VERSION = 'v63';
+const APP_VERSION = 'v64';
 try{ document.title = 'シフト管理 ' + APP_VERSION; }catch(e){}
 
 // ── 診療枠カラーパレット ──
@@ -1028,7 +1028,7 @@ function RequestSheet({dk,mySlots,allDaySlots,selReq,remainDays,onApply,onApplyW
                   selReq.decision==='approved'
                     ?<div style={{fontSize:13,fontWeight:700,color:'#166534',marginTop:6}}>✓ 承認されました（出勤予定）</div>
                     :selReq.decision==='rejected'
-                    ?<div style={{fontSize:13,fontWeight:700,color:'#991B1B',marginTop:6}}>✕ 今回は見送りになりました</div>
+                    ?<div style={{marginTop:6}}><div style={{fontSize:13,fontWeight:700,color:'#991B1B'}}>✕ 今回は見送りとなりました</div><div style={{fontSize:11,fontWeight:400,color:'#9A3412',lineHeight:1.7,marginTop:3}}>挙手していただきありがとうございました。今後ともよろしくお願いします。</div></div>
                     :<div style={{fontSize:12,fontWeight:600,color:'#92400E',marginTop:6}}>⏳ 管理者の確認待ち</div>
                 )}
               </div>
@@ -3898,7 +3898,7 @@ ${bodyHtml}
                               req.decision==='approved'
                                 ?<div style={{fontSize:11,fontWeight:700,color:'#166534',marginTop:3}}>✓ 承認されました（出勤予定）</div>
                                 :req.decision==='rejected'
-                                ?<div style={{fontSize:11,fontWeight:700,color:'#991B1B',marginTop:3}}>✕ 今回は見送りになりました</div>
+                                ?<div style={{marginTop:3}}><div style={{fontSize:11,fontWeight:700,color:'#991B1B'}}>✕ 今回は見送りとなりました</div><div style={{fontSize:10,fontWeight:400,color:'#9A3412',lineHeight:1.6,marginTop:2}}>挙手していただきありがとうございました。今後ともよろしくお願いします。</div></div>
                                 :<div style={{fontSize:11,fontWeight:600,color:'#92400E',marginTop:3}}>⏳ 管理者の確認待ち</div>
                             )}
                           </div>
